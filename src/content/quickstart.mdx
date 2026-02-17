@@ -1,90 +1,85 @@
 ---
 title: Quickstart
-description: Get up and running with Procta in under 5 minutes.
+description: Start verifying AI agent actions with Procta in under 5 minutes.
 ---
 
-## Register as an Owner
+This guide gets you from zero to verifying agent actions in production. You'll register as a relying party, get an API key, and make your first verification call.
 
-Create an owner account to start managing AI agents. You'll receive a one-time API key.
+## 1. Register as a Relying Party
+
+Create a relying party account to get your API key:
 
 ```bash
-curl -X POST https://api.procta.org/v1/owners \
+curl -X POST https://api.procta.org/v1/relying-parties \
   -H "Content-Type: application/json" \
   -d '{
-    "ownerType": "ORGANIZATION",
-    "email": "admin@yourcompany.com",
-    "password": "your-secure-password",
-    "jurisdiction": "US"
+    "name": "YourPlatform",
+    "contactEmail": "integrations@yourplatform.com",
+    "password": "your-secure-password"
   }'
 ```
 
-The response includes your API key and a KYC verification URL:
-
 ```json
 {
-  "owner": { "id": "uuid-...", "verificationStatus": "PENDING" },
-  "apiKey": "prc_owner_abc123...",
-  "kycUrl": "https://sumsub.com/verify/..."
+  "relyingParty": { "id": "uuid-...", "name": "YourPlatform" },
+  "apiKey": "prc_rp_xyz789..."
 }
 ```
 
 <Note type="danger" title="Save your API key">
-The API key is shown **only once**. It is hashed before storage and cannot be recovered. Store it in a secure vault immediately.
+The API key is shown **only once**. It is hashed before storage and cannot be recovered. Store it as an environment variable immediately.
 </Note>
 
-## Complete KYC Verification
+## 2. Verify Your First Agent Action
 
-Visit the `kycUrl` to complete identity verification through Sumsub. Once approved, your `verificationStatus` changes to `VERIFIED` and you can register agents.
+When an AI agent requests to perform an action on your platform, verify it before processing:
 
-## Register an Agent
-
-Create an agent with specific scopes and transaction limits:
-
-<CodeGroup title="Register an agent">
+<CodeGroup title="Verify an agent action">
 
 ```ts
-const response = await fetch(
-  `https://api.procta.org/v1/owners/${ownerId}/agents`,
-  {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: 'PaymentBot',
-      scopes: ['payments:send', 'payments:receive'],
-      limits: { perTransaction: '1000', dailyLimit: '10000' },
-      environment: 'SANDBOX',
-    }),
-  }
-)
-const { agent, vcJwt } = await response.json()
-// agent.kyaId → "kya_abc123def456"
+const response = await fetch('https://api.procta.org/v1/verify', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    kya_id: 'kya_abc123def456',
+    action: 'payments:send',
+    amount: '500.00',
+    asset: 'USD',
+  }),
+})
+const result = await response.json()
+
+if (result.decision === 'ALLOWED') {
+  // Safe to process the transaction
+} else {
+  // Deny — result.reason explains why
+  console.log(`Denied: ${result.reason}`)
+}
 ```
 
 ```python
-import requests
+import os, requests
 
 response = requests.post(
-    f"https://api.procta.org/v1/owners/{owner_id}/agents",
-    headers={"Authorization": f"Bearer {api_key}"},
+    "https://api.procta.org/v1/verify",
+    headers={"Authorization": f"Bearer {os.environ['PROCTA_RP_KEY']}"},
     json={
-        "name": "PaymentBot",
-        "scopes": ["payments:send", "payments:receive"],
-        "limits": {"perTransaction": "1000", "dailyLimit": "10000"},
-        "environment": "SANDBOX",
+        "kya_id": "kya_abc123def456",
+        "action": "payments:send",
+        "amount": "500.00",
+        "asset": "USD",
     },
 )
-data = response.json()
-# data["agent"]["kyaId"] → "kya_abc123def456"
+result = response.json()
+
+if result["decision"] == "ALLOWED":
+    pass  # Safe to process
+else:
+    print(f"Denied: {result['reason']}")
 ```
-
-</CodeGroup>
-
-## Verify Agent Actions
-
-Relying parties use the verification endpoint to check agent permissions in real-time:
 
 ```bash
 curl -X POST https://api.procta.org/v1/verify \
@@ -98,7 +93,56 @@ curl -X POST https://api.procta.org/v1/verify \
   }'
 ```
 
-<Note type="info" title="Next steps">
-Read the [Owner Guide](/guides/owner-guide) for full lifecycle management or the [Relying Party Guide](/guides/relying-party-guide) to integrate verification into your platform.
-</Note>
+</CodeGroup>
+
+Procta checks four things in a single call (typically under 15ms):
+
+1. **Agent status** — Is the agent active?
+2. **Owner verification** — Is the agent's owner KYC/KYB-verified?
+3. **Scope authorization** — Does the agent have the `payments:send` scope?
+4. **Transaction limits** — Is `500.00` within the agent's configured limits?
+
+## 3. Look Up an Agent
+
+Before the first transaction, you can look up an agent's identity and verification status:
+
+```bash
+curl -X POST https://api.procta.org/v1/agents/lookup \
+  -H "Authorization: Bearer prc_rp_xyz789..." \
+  -H "Content-Type: application/json" \
+  -d '{ "kya_id": "kya_abc123def456" }'
+```
+
+```json
+{
+  "verified": true,
+  "agent": {
+    "kyaId": "kya_abc123def456",
+    "name": "PaymentBot",
+    "status": "ACTIVE",
+    "environment": "PRODUCTION"
+  },
+  "owner": {
+    "verificationStatus": "VERIFIED",
+    "riskBand": "LOW"
+  }
+}
+```
+
+## 4. Verify a Credential Directly
+
+If an agent presents a Verifiable Credential JWT, you can verify it without an API key:
+
+```bash
+curl -X POST https://api.procta.org/v1/credentials/verify \
+  -H "Content-Type: application/json" \
+  -d '{ "vcJwt": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9..." }'
+```
+
+## What's Next
+
+- **[Verification](/verification)** — Deep dive into the verification endpoint, decision logic, and response format
+- **[Relying Party Guide](/guides/relying-party-guide)** — Middleware patterns, error handling, and production best practices
+- **[Audit Trails](/guides/audit-trails)** — Query verification history and export compliance reports
+- **[Owner Guide](/guides/owner-guide)** — If you're deploying agents and need to register them on Procta
 

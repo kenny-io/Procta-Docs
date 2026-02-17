@@ -89,11 +89,11 @@ export const siteConfig: SiteConfig = {
   name: 'Procta',
   description:
     'Trust and attestation layer for autonomous financial agents. KYA identity, verifiable credentials, real-time verification, and audit trails.',
-  repoUrl: 'https://github.com/ArbX-Procta/procta',
+  repoUrl: 'https://github.com/kenny-io/procta',
   links: [
     { label: 'Get started', href: '/quickstart' },
-    { label: 'Dashboard', href: 'https://app.procta.org' },
-    { label: 'GitHub', href: 'https://github.com/ArbX-Procta/procta' },
+    { label: 'Dashboard', href: 'https://procta.org/login' },
+    { label: 'GitHub', href: 'https://github.com/kenny-io/procta' },
     { label: 'Changelog', href: '/changelog' },
   ],
   brand: brandPresets[brandPreset],

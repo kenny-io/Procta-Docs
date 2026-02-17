@@ -27,6 +27,8 @@ info:
     name: MIT
 
 servers:
+  - url: https://api.procta.org
+    description: Production
   - url: http://localhost:3000
     description: Local development
 
@@ -83,11 +85,30 @@ components:
           format: email
         verificationStatus:
           type: string
-          enum: [PENDING, IN_REVIEW, VERIFIED, REJECTED]
+          enum: [PENDING, PENDING_REVIEW, IN_REVIEW, VERIFIED, REJECTED, EXPIRED]
         riskBand:
           type: string
           nullable: true
         jurisdiction:
+          type: string
+          nullable: true
+        emailVerifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+        businessName:
+          type: string
+          nullable: true
+        website:
+          type: string
+          nullable: true
+        ceoName:
+          type: string
+          nullable: true
+        ceoEmail:
+          type: string
+          nullable: true
+        ceoLinkedin:
           type: string
           nullable: true
         createdAt:
@@ -292,7 +313,7 @@ paths:
                         enum: [INDIVIDUAL, ORGANIZATION]
                       verificationStatus:
                         type: string
-                        enum: [PENDING, IN_REVIEW, VERIFIED, REJECTED]
+                        enum: [PENDING, PENDING_REVIEW, IN_REVIEW, VERIFIED, REJECTED, EXPIRED]
                     required: [type, id, email, ownerType, verificationStatus]
                   - type: object
                     title: Relying Party identity
@@ -368,7 +389,7 @@ paths:
                             enum: [INDIVIDUAL, ORGANIZATION]
                           verificationStatus:
                             type: string
-                            enum: [PENDING, IN_REVIEW, VERIFIED, REJECTED]
+                            enum: [PENDING, PENDING_REVIEW, IN_REVIEW, VERIFIED, REJECTED, EXPIRED]
                         required: [type, id, email, ownerType, verificationStatus]
                       - type: object
                         title: Relying Party user
@@ -695,7 +716,7 @@ paths:
                 properties:
                   verificationStatus:
                     type: string
-                    enum: [PENDING, IN_REVIEW, VERIFIED, REJECTED]
+                    enum: [PENDING, PENDING_REVIEW, IN_REVIEW, VERIFIED, REJECTED, EXPIRED]
                   riskBand:
                     type: string
                     nullable: true
@@ -708,6 +729,140 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: Owner not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/owners/{id}/kyb:
+    post:
+      tags: [Owners]
+      summary: Submit KYB documents
+      description: |
+        Submit business verification documents for organization owners.
+        After submission, the owner's status changes to PENDING_REVIEW.
+        Organization owners can create up to 1 agent while pending review.
+      operationId: submitKyb
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                businessName:
+                  type: string
+                  minLength: 1
+                registrationNumber:
+                  type: string
+                  minLength: 1
+                businessDocUrl:
+                  type: string
+                  format: uri
+                  description: URL of the uploaded business document
+                website:
+                  type: string
+                  format: uri
+                socialMedia:
+                  type: string
+                ceoName:
+                  type: string
+                  minLength: 1
+                ceoEmail:
+                  type: string
+                  format: email
+                ceoLinkedin:
+                  type: string
+                  format: uri
+              required: [businessName, registrationNumber, businessDocUrl, website, ceoName, ceoEmail, ceoLinkedin]
+      responses:
+        "200":
+          description: KYB submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  verificationStatus:
+                    type: string
+                    example: PENDING_REVIEW
+                  businessName:
+                    type: string
+                  message:
+                    type: string
+                required: [id, verificationStatus, message]
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/auth/email-verification/send:
+    post:
+      tags: [Auth]
+      summary: Send email verification OTP
+      description: Sends a 6-digit OTP to the email address associated with the account.
+      operationId: sendEmailVerification
+      security:
+        - anyApiKey: []
+      responses:
+        "200":
+          description: OTP sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Verification code sent
+
+  /v1/auth/email-verification/verify:
+    post:
+      tags: [Auth]
+      summary: Verify email with OTP
+      description: Verifies the email address using the 6-digit OTP code.
+      operationId: verifyEmail
+      security:
+        - anyApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+              required: [code]
+      responses:
+        "200":
+          description: Email verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Email verified successfully
+        "400":
+          description: Invalid or expired OTP
           content:
             application/json:
               schema:
@@ -1189,7 +1344,7 @@ paths:
                     properties:
                       verificationStatus:
                         type: string
-                        enum: [PENDING, IN_REVIEW, VERIFIED, REJECTED]
+                        enum: [PENDING, PENDING_REVIEW, IN_REVIEW, VERIFIED, REJECTED, EXPIRED]
                       riskBand:
                         type: string
                         nullable: true

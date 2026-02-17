@@ -33,6 +33,26 @@ const response = await fetch('https://api.procta.org/v1/owners/me', {
 Never commit API keys to version control. Use environment variables or a secrets manager. If a key is compromised, revoke it immediately from the dashboard.
 </Note>
 
+## Email Verification
+
+After registration, you must verify your email address before you can log in to the dashboard. Procta sends a 6-digit OTP to your email:
+
+```bash
+# Request a verification code
+curl -X POST https://api.procta.org/v1/auth/email-verification/send \
+  -H "Authorization: Bearer prc_owner_..."
+
+# Submit the code
+curl -X POST https://api.procta.org/v1/auth/email-verification/verify \
+  -H "Authorization: Bearer prc_owner_..." \
+  -H "Content-Type: application/json" \
+  -d '{ "code": "123456" }'
+```
+
+<Note type="warning" title="Login requires verified email">
+Attempting to log in with an unverified email returns `EMAIL_NOT_VERIFIED`. Complete email verification first.
+</Note>
+
 ## Session Tokens
 
 For dashboard access, authenticate with email and password to receive a JWT session token:

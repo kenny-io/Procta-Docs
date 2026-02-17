@@ -1,13 +1,13 @@
 ---
 title: Owner Guide
-description: Complete guide for agent owners — registration, KYC, agent management, and API keys.
+description: Complete guide for agent owners — registration, verification, KYB, agent management, and API keys.
 ---
 
 This guide walks through the full lifecycle of an agent owner on Procta, from registration to managing a fleet of AI agents.
 
 ## Register as an Owner
 
-Create your owner account with your organization details:
+Create your owner account. Choose `INDIVIDUAL` or `ORGANIZATION` based on your entity type:
 
 ```bash
 curl -X POST https://api.procta.org/v1/owners \
@@ -23,23 +23,77 @@ curl -X POST https://api.procta.org/v1/owners \
 You'll receive:
 - **Owner profile** with a `PENDING` verification status
 - **One-time API key** prefixed with `prc_owner_`
-- **KYC URL** to complete identity verification
+- **KYC URL** (for individual owners) to complete identity verification
 
 <Note type="danger" title="Save your API key immediately">
 The API key is shown only once. Store it in a secure vault — it cannot be recovered.
 </Note>
 
-## Complete KYC Verification
+## Verify Your Email
+
+After registration, you must verify your email before you can log in to the dashboard. An OTP code is sent to your email:
+
+```bash
+# Request a verification code
+curl -X POST https://api.procta.org/v1/auth/email-verification/send \
+  -H "Authorization: Bearer prc_owner_..."
+
+# Submit the 6-digit code
+curl -X POST https://api.procta.org/v1/auth/email-verification/verify \
+  -H "Authorization: Bearer prc_owner_..." \
+  -H "Content-Type: application/json" \
+  -d '{ "code": "123456" }'
+```
+
+## Complete Identity Verification
+
+The verification path depends on your owner type:
+
+### Individual Owners — KYC via Sumsub
 
 Visit the `kycUrl` returned at registration to complete identity verification through Sumsub. The process typically takes a few minutes.
 
-Your `verificationStatus` will progress through:
+### Organization Owners — KYB Document Submission
+
+Organization owners submit business verification documents through the dashboard or API. Required fields:
+
+| Field | Description |
+| --- | --- |
+| `businessName` | Legal business name |
+| `registrationNumber` | Company registration number |
+| `businessDocUrl` | URL of uploaded business registration document |
+| `website` | Company website URL |
+| `ceoName` | CEO/Founder full name |
+| `ceoEmail` | CEO/Founder email |
+| `ceoLinkedin` | CEO/Founder LinkedIn profile URL |
+
+```bash
+curl -X POST https://api.procta.org/v1/owners/{id}/kyb \
+  -H "Authorization: Bearer prc_owner_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "businessName": "Acme Corp",
+    "registrationNumber": "RC-123456",
+    "businessDocUrl": "https://uploads.example.com/doc.pdf",
+    "website": "https://acme.com",
+    "ceoName": "Jane Doe",
+    "ceoEmail": "jane@acme.com",
+    "ceoLinkedin": "https://linkedin.com/in/janedoe"
+  }'
+```
+
+<Note type="info" title="Agent limit while pending">
+Organization owners can create up to **1 agent** while their KYB is under review. Once verified, the limit is removed.
+</Note>
+
+### Verification Statuses
 
 | Status | Meaning |
 | --- | --- |
-| `PENDING` | KYC not yet started |
-| `IN_REVIEW` | KYC submitted, under review |
-| `VERIFIED` | Identity confirmed — you can register agents |
+| `PENDING` | Verification not yet started |
+| `PENDING_REVIEW` | KYB documents submitted, awaiting admin review |
+| `IN_REVIEW` | KYC submitted to Sumsub, under review |
+| `VERIFIED` | Identity confirmed — full access to register agents |
 | `REJECTED` | Verification failed — contact support |
 
 Check your status at any time:
@@ -51,7 +105,7 @@ curl https://api.procta.org/v1/owners/{id}/kyc-status \
 
 ## Register Agents
 
-Once verified, register agents with specific scopes and transaction limits:
+Once verified (or with 1-agent limit for pending organizations), register agents with specific scopes and transaction limits:
 
 ```ts
 const response = await fetch(
@@ -98,13 +152,11 @@ curl -X DELETE https://api.procta.org/v1/owners/{id}/api-keys/{keyId} \
 
 ## Dashboard Access
 
-Set a password to access the Procta dashboard:
+The Procta dashboard at [app.procta.org](https://app.procta.org) provides a visual interface for:
 
-```bash
-curl -X POST https://api.procta.org/v1/auth/set-password \
-  -H "Authorization: Bearer prc_owner_..." \
-  -H "Content-Type: application/json" \
-  -d '{ "password": "your-dashboard-password" }'
-```
+- Managing agents (create, suspend, revoke, reinstate)
+- Submitting KYB documents for organization verification
+- Viewing audit logs and verification activity
+- Managing API keys
 
-The dashboard provides a visual interface for managing agents, viewing audit logs, and monitoring verification activity.
+Log in with the email and password you set during registration.

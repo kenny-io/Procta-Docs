@@ -18,15 +18,17 @@ All error responses follow a consistent JSON schema with a machine-readable erro
 | Code | Status | Description |
 | --- | --- | --- |
 | `VALIDATION_ERROR` | 400 | Request body failed schema validation |
+| `BAD_REQUEST` | 400 | General bad request (e.g., invalid KYB submission) |
 | `UNAUTHORIZED` | 401 | Missing or invalid API key / session token |
 | `FORBIDDEN` | 403 | API key does not have permission for this resource |
 | `NOT_FOUND` | 404 | The requested resource does not exist |
-| `OWNER_NOT_VERIFIED` | 403 | Owner has not completed KYC verification |
+| `OWNER_NOT_VERIFIED` | 403 | Owner has not completed KYC/KYB verification |
 | `AGENT_SUSPENDED` | 403 | Agent is suspended and cannot perform actions |
 | `AGENT_REVOKED` | 403 | Agent has been permanently revoked |
+| `AGENT_LIMIT_REACHED` | 403 | Organization pending KYB review — max 1 agent allowed |
 | `SCOPE_DENIED` | 403 | Agent does not have the required scope |
 | `LIMIT_EXCEEDED` | 403 | Transaction exceeds the agent's configured limits |
-| `EMAIL_NOT_VERIFIED` | 403 | Email address has not been verified |
+| `EMAIL_NOT_VERIFIED` | 403 | Email address has not been verified — complete OTP verification first |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
 
 ## Handling errors
