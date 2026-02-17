@@ -1,35 +1,41 @@
 ---
 title: Relying Party Guide
-description: Integrate Procta verification into your platform to trust AI agent transactions.
+description: Step-by-step guide for platforms and exchanges to verify AI agent actions using the Procta dashboard.
 ---
 
-Relying parties are platforms, exchanges, and financial services that interact with AI agents. This guide shows how to register as a relying party and integrate real-time agent verification.
+This guide walks you through verifying AI agent actions using the Procta dashboard and API. Relying parties are platforms, exchanges, and financial services that interact with AI agents.
 
-## Register as a Relying Party
+## Step 1: Create Your Account
 
-```bash
-curl -X POST https://api.procta.org/v1/relying-parties \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "AcmeExchange",
-    "contactEmail": "integrations@acme.exchange",
-    "password": "secure-password-here",
-    "webhookUrl": "https://acme.exchange/webhooks/procta",
-    "permissions": ["verify"]
-  }'
-```
+1. Visit the [Procta registration page](https://procta.org/register/rp)
+2. Fill in your platform details:
+   - **Organization name** — Your company or platform name
+   - **Contact email** — For important notifications about verification events
+   - **Password** — Secure password for dashboard access
+3. Click **Create Account**
 
 You'll receive:
-- **Relying party profile** with your organization details
-- **One-time API key** prefixed with `prc_rp_`
+- A confirmation that your relying party profile was created
+- A **one-time API key** (starts with `prc_rp_`) — save this immediately, it cannot be recovered
 
 <Note type="danger" title="Save your API key immediately">
-The API key is shown only once and cannot be recovered. Store it securely.
+The API key is shown only once. Store it in a secure environment variable or secrets manager. If lost, you can generate a new one from the dashboard.
 </Note>
 
-## Verify Agent Actions
+## Step 2: Log In and View Dashboard
 
-Before processing any agent request, call the verification endpoint:
+1. Go to the [Procta login page](https://procta.org/login)
+2. Enter your email and password
+3. You'll land on the **Relying Party Dashboard**
+
+The dashboard shows:
+- Your API keys (with prefix visibility and revoke options)
+- Verification activity (recent agent verifications)
+- API usage statistics
+
+## Step 3: Verify an Agent Action
+
+When an AI agent requests to perform an action on your platform, verify it before processing. You can do this via API:
 
 ```ts
 async function verifyAgent(kyaId: string, action: string, amount?: string) {
@@ -50,19 +56,68 @@ async function verifyAgent(kyaId: string, action: string, amount?: string) {
   const result = await response.json()
 
   if (result.decision === 'ALLOWED') {
-    // Proceed with the transaction
+    // Safe to proceed with the transaction
     return true
   } else {
-    // Reject — log the reason
+    // Reject and log the reason
     console.log(`Denied: ${result.reason}`)
     return false
   }
 }
 ```
 
-## Lookup Agent Status
+The API checks four things in a single call:
+1. **Agent status** — Is the agent active (not suspended or revoked)?
+2. **Owner verification** — Is the agent's owner KYC/KYB-verified?
+3. **Scope authorization** — Does the agent have permission for this action?
+4. **Transaction limits** — Is the amount within the agent's configured limits?
 
-You can check an agent's verification status without performing an action check:
+## Step 4: Review Verification History
+
+From the dashboard:
+1. Navigate to **Audit Logs** in the sidebar
+2. View recent verifications with details:
+   - Agent KYA ID and name
+   - Action attempted
+   - Decision (ALLOWED / DENIED)
+   - Timestamp
+   - Reason (if denied)
+
+You can also query audit logs via API:
+
+```bash
+curl "https://api.procta.org/v1/audit?limit=50&format=json" \
+  -H "Authorization: Bearer prc_rp_..."
+```
+
+Supports filtering by `agentId`, date range (`from`, `to`), and CSV export with `format=csv`.
+
+## Step 5: Manage API Keys
+
+From the dashboard **API Keys** section:
+1. View all your API keys (only the prefix is shown for security)
+2. **Create new keys** — Click "Generate New Key" to rotate credentials
+3. **Revoke keys** — Immediately invalidate a compromised key
+
+Or manage keys programmatically:
+
+```bash
+# List your API keys
+curl https://api.procta.org/v1/relying-parties/{id}/api-keys \
+  -H "Authorization: Bearer prc_rp_..."
+
+# Create a new key
+curl -X POST https://api.procta.org/v1/relying-parties/{id}/api-keys \
+  -H "Authorization: Bearer prc_rp_..."
+
+# Revoke a key
+curl -X DELETE https://api.procta.org/v1/relying-parties/{id}/api-keys/{keyId} \
+  -H "Authorization: Bearer prc_rp_..."
+```
+
+## Step 6: Look Up an Agent
+
+Before processing a transaction, you can check an agent's identity and status:
 
 ```ts
 const response = await fetch('https://api.procta.org/v1/agents/lookup', {
@@ -74,26 +129,15 @@ const response = await fetch('https://api.procta.org/v1/agents/lookup', {
   body: JSON.stringify({ kya_id: 'kya_abc123def456' }),
 })
 
-const { verified, agent, owner, reason } = await response.json()
+const { verified, agent, owner } = await response.json()
 // verified: true/false
 // agent: { kyaId, name, status, environment }
 // owner: { verificationStatus, riskBand }
 ```
 
-## Query Audit Logs
+## Step 7: Verify Credentials Directly
 
-Review verification history for any agent:
-
-```bash
-curl "https://api.procta.org/v1/audit?agentId={agentId}&limit=50&format=json" \
-  -H "Authorization: Bearer prc_rp_..."
-```
-
-Supports date range filtering with `from` and `to` parameters, and CSV export with `format=csv`.
-
-## Verify Credentials Directly
-
-You can also verify an agent's verifiable credential JWT without an API key:
+If an agent presents a Verifiable Credential JWT, you can verify it without an API key:
 
 ```bash
 curl -X POST https://api.procta.org/v1/credentials/verify \
@@ -109,3 +153,15 @@ This is useful for offline verification or when you want to inspect the credenti
 - **Cache verification results briefly** — Results are valid for the duration of a single transaction
 - **Handle denials gracefully** — Return clear error messages to the agent's owner
 - **Monitor audit logs** — Set up alerts for unusual verification patterns
+- **Rotate API keys regularly** — Generate new keys and revoke old ones periodically
+
+## Quick Reference
+
+| Task | Dashboard Location | API Endpoint |
+|------|-------------------|--------------|
+| View API keys | API Keys section | `GET /v1/relying-parties/{id}/api-keys` |
+| Generate new key | API Keys → "Generate New Key" | `POST /v1/relying-parties/{id}/api-keys` |
+| Revoke key | API Keys → "Revoke" | `DELETE /v1/relying-parties/{id}/api-keys/{keyId}` |
+| View audit logs | Audit Logs section | `GET /v1/audit` |
+| Verify agent action | N/A (API only) | `POST /v1/verify` |
+| Look up agent | N/A (API only) | `POST /v1/agents/lookup` |

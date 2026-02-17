@@ -5,7 +5,7 @@ description: Start verifying AI agent actions with Procta in under 5 minutes.
 
 This guide gets you from zero to verifying agent actions in production. You'll register as a relying party, get an API key, and make your first verification call.
 
-## 1. Register as a Relying Party
+## Register as a Relying Party
 
 Create a relying party account to get your API key:
 
@@ -30,7 +30,7 @@ curl -X POST https://api.procta.org/v1/relying-parties \
 The API key is shown **only once**. It is hashed before storage and cannot be recovered. Store it as an environment variable immediately.
 </Note>
 
-## 2. Verify Your First Agent Action
+## Verify Your First Agent Action
 
 When an AI agent requests to perform an action on your platform, verify it before processing:
 
@@ -102,7 +102,7 @@ Procta checks four things in a single call (typically under 15ms):
 3. **Scope authorization** — Does the agent have the `payments:send` scope?
 4. **Transaction limits** — Is `500.00` within the agent's configured limits?
 
-## 3. Look Up an Agent
+## Look Up an Agent
 
 Before the first transaction, you can look up an agent's identity and verification status:
 
@@ -129,7 +129,7 @@ curl -X POST https://api.procta.org/v1/agents/lookup \
 }
 ```
 
-## 4. Verify a Credential Directly
+## Verify a Credential Directly
 
 If an agent presents a Verifiable Credential JWT, you can verify it without an API key:
 

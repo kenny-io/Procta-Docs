@@ -1,71 +1,91 @@
 ---
 title: Owner Guide
-description: Complete guide for agent owners — registration, verification, KYB, agent management, and API keys.
+description: Step-by-step guide for agent owners — register, verify identity, and manage your AI agents through the Procta dashboard.
 ---
 
-This guide walks through the full lifecycle of an agent owner on Procta, from registration to managing a fleet of AI agents.
+This guide walks you through the complete lifecycle of an agent owner on Procta, from registration to managing your AI agents.
 
-## Register as an Owner
+## Step 1: Create Your Owner Account
 
-Create your owner account. Choose `INDIVIDUAL` or `ORGANIZATION` based on your entity type:
-
-```bash
-curl -X POST https://api.procta.org/v1/owners \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ownerType": "ORGANIZATION",
-    "email": "admin@yourcompany.com",
-    "password": "secure-password-here",
-    "jurisdiction": "US"
-  }'
-```
+1. Visit the [Procta owner registration page](https://procta.org/register/owner)
+2. Select your **Owner Type**:
+   - **Individual** — For personal AI agents
+   - **Organization** — For business-deployed agents (requires KYB documents)
+3. Fill in the required details:
+   - **Email address** — Used for login and notifications
+   - **Password** — Secure password for dashboard access
+   - **Jurisdiction** — Your country (for regulatory context)
+4. Click **Create Account**
 
 You'll receive:
-- **Owner profile** with a `PENDING` verification status
-- **One-time API key** prefixed with `prc_owner_`
-- **KYC URL** (for individual owners) to complete identity verification
+- An **Owner ID** for your account
+- A **one-time API key** (starts with `prc_owner_`) — save this immediately
 
 <Note type="danger" title="Save your API key immediately">
-The API key is shown only once. Store it in a secure vault — it cannot be recovered.
+The API key is shown only once and cannot be recovered. Store it securely in a secrets manager or environment variable.
 </Note>
 
-## Verify Your Email
+## Step 2: Verify Your Email
 
-After registration, you must verify your email before you can log in to the dashboard. An OTP code is sent to your email:
+Before you can log in, you must verify your email address:
+
+1. Check your email for a 6-digit verification code from Procta
+2. Enter the code on the verification screen, or use the API:
 
 ```bash
-# Request a verification code
+# Request a new code (if needed)
 curl -X POST https://api.procta.org/v1/auth/email-verification/send \
   -H "Authorization: Bearer prc_owner_..."
 
-# Submit the 6-digit code
+# Submit the code
 curl -X POST https://api.procta.org/v1/auth/email-verification/verify \
   -H "Authorization: Bearer prc_owner_..." \
   -H "Content-Type: application/json" \
   -d '{ "code": "123456" }'
 ```
 
-## Complete Identity Verification
+3. Once verified, you can log in at [procta.org/login](https://procta.org/login)
 
-The verification path depends on your owner type:
+## Step 3: Complete Identity Verification
 
-### Individual Owners — KYC via Sumsub
+Your verification path depends on your owner type:
 
-Visit the `kycUrl` returned at registration to complete identity verification through Sumsub. The process typically takes a few minutes.
+### Individual Owners — KYC via Dashboard
+
+1. Log in to the dashboard
+2. Navigate to **Identity Verification** in the sidebar
+3. Click **Start KYC Verification**
+4. Complete the Sumsub identity flow (takes 2-3 minutes):
+   - Upload government-issued ID
+   - Take a selfie for liveness check
+   - Wait for automatic verification
+
+Status updates automatically — refresh the page to see changes.
 
 ### Organization Owners — KYB Document Submission
 
-Organization owners submit business verification documents through the dashboard or API. Required fields:
+1. Log in to the dashboard
+2. Navigate to **Identity Verification**
+3. Click **Submit KYB Documents**
+4. Fill in the required fields:
 
 | Field | Description |
-| --- | --- |
-| `businessName` | Legal business name |
-| `registrationNumber` | Company registration number |
-| `businessDocUrl` | URL of uploaded business registration document |
-| `website` | Company website URL |
-| `ceoName` | CEO/Founder full name |
-| `ceoEmail` | CEO/Founder email |
-| `ceoLinkedin` | CEO/Founder LinkedIn profile URL |
+|-------|-------------|
+| **Business Name** | Legal business name |
+| **Registration Number** | Company registration/incorporation number |
+| **Business Document** | Upload registration certificate (PDF or image) |
+| **Website** | Company website URL |
+| **CEO/Founder Name** | Full name of the CEO or founder |
+| **CEO/Founder Email** | Contact email for the CEO |
+| **CEO LinkedIn** | LinkedIn profile URL for verification |
+
+5. Click **Submit for Review**
+
+<Note type="info" title="Agent limit while pending">
+Organization owners can create up to **1 agent** while KYB is under review. Once verified, the limit is removed.
+</Note>
+
+Or submit via API:
 
 ```bash
 curl -X POST https://api.procta.org/v1/owners/{id}/kyb \
@@ -82,30 +102,43 @@ curl -X POST https://api.procta.org/v1/owners/{id}/kyb \
   }'
 ```
 
-<Note type="info" title="Agent limit while pending">
-Organization owners can create up to **1 agent** while their KYB is under review. Once verified, the limit is removed.
-</Note>
-
 ### Verification Statuses
 
 | Status | Meaning |
-| --- | --- |
+|--------|---------|
 | `PENDING` | Verification not yet started |
-| `PENDING_REVIEW` | KYB documents submitted, awaiting admin review |
-| `IN_REVIEW` | KYC submitted to Sumsub, under review |
+| `PENDING_REVIEW` | KYB submitted, awaiting admin review (org owners only) |
+| `IN_REVIEW` | KYC submitted, under review by Sumsub |
 | `VERIFIED` | Identity confirmed — full access to register agents |
 | `REJECTED` | Verification failed — contact support |
 
-Check your status at any time:
+Check your status in the dashboard or via API:
 
 ```bash
 curl https://api.procta.org/v1/owners/{id}/kyc-status \
   -H "Authorization: Bearer prc_owner_..."
 ```
 
-## Register Agents
+## Step 4: Register Your First Agent
 
-Once verified (or with 1-agent limit for pending organizations), register agents with specific scopes and transaction limits:
+Once verified (or with the 1-agent limit for pending organizations):
+
+1. In the dashboard, go to **Agents** in the sidebar
+2. Click **Register New Agent**
+3. Fill in the agent details:
+   - **Name** — A friendly name for the agent (e.g., "PaymentBot")
+   - **Description** — What this agent does
+   - **Scopes** — Actions the agent can perform (e.g., `payments:send`, `trading:execute`)
+   - **Limits** — Transaction limits (per transaction and daily)
+   - **Environment** — `SANDBOX` for testing, `PRODUCTION` for live use
+   - **Profile Image** — Optional agent avatar
+4. Click **Register Agent**
+
+Each agent receives:
+- A unique **KYA ID** (e.g., `kya_abc123def456`)
+- A **Verifiable Credential JWT** — share this with relying parties
+
+Or register via API:
 
 ```ts
 const response = await fetch(
@@ -128,13 +161,30 @@ const response = await fetch(
 const { agent, vcJwt } = await response.json()
 ```
 
-Each agent receives:
-- A unique **KYA ID** (e.g., `kya_abc123def456`)
-- A **Verifiable Credential JWT** binding the agent to your verified identity
+## Step 5: Manage Your Agents
 
-## Manage API Keys
+From the dashboard **Agents** section:
 
-You can create additional API keys and revoke compromised ones:
+1. **View all agents** — See KYA IDs, statuses, scopes, and limits at a glance
+2. **Edit agent** — Update name, description, scopes, or limits
+3. **Suspend agent** — Temporarily disable an agent (status changes to `SUSPENDED`)
+4. **Reinstate agent** — Reactivate a suspended agent
+5. **Revoke agent** — Permanently disable an agent (status changes to `REVOKED`)
+
+Agent statuses:
+- `ACTIVE` — Agent can perform actions
+- `SUSPENDED` — Temporarily paused (can be reinstated)
+- `REVOKED` — Permanently disabled (cannot be reinstated)
+
+## Step 6: Manage API Keys
+
+From the dashboard **API Keys** section:
+
+1. **View keys** — See all your API keys (only prefixes shown for security)
+2. **Generate new key** — Click "Create New Key" for rotation or different use cases
+3. **Revoke key** — Immediately invalidate a compromised key
+
+Or manage via API:
 
 ```bash
 # List your API keys
@@ -150,13 +200,46 @@ curl -X DELETE https://api.procta.org/v1/owners/{id}/api-keys/{keyId} \
   -H "Authorization: Bearer prc_owner_..."
 ```
 
-## Dashboard Access
+## Step 7: View Audit Logs
 
-The Procta dashboard at [app.procta.org](https://app.procta.org) provides a visual interface for:
+From the dashboard **Audit Logs** section:
 
-- Managing agents (create, suspend, revoke, reinstate)
-- Submitting KYB documents for organization verification
-- Viewing audit logs and verification activity
-- Managing API keys
+1. See all verification events for your agents
+2. Filter by agent, date range, or decision
+3. Export logs to CSV for compliance reporting
 
-Log in with the email and password you set during registration.
+Or query via API:
+
+```bash
+curl "https://api.procta.org/v1/audit?agentId={agentId}&limit=50" \
+  -H "Authorization: Bearer prc_owner_..."
+```
+
+## Dashboard Overview
+
+The Procta dashboard at [procta.org/login](https://procta.org/login) provides a visual interface for all owner operations:
+
+| Section | Purpose |
+|---------|---------|
+| **Home** | Overview of your account status and recent activity |
+| **Identity Verification** | Complete KYC (individuals) or submit KYB (organizations) |
+| **Agents** | Register, edit, suspend, reinstate, or revoke agents |
+| **API Keys** | Generate and revoke API keys |
+| **Audit Logs** | View verification history for your agents |
+| **Settings** | Update account details and security settings |
+
+## Quick Reference
+
+| Task | Dashboard Path | API Endpoint |
+|------|---------------|--------------|
+| Check verification status | Identity Verification | `GET /v1/owners/{id}/kyc-status` |
+| Submit KYB documents | Identity Verification → Submit KYB | `POST /v1/owners/{id}/kyb` |
+| Register agent | Agents → Register New Agent | `POST /v1/owners/{id}/agents` |
+| Edit agent | Agents → Edit | `PATCH /v1/owners/{id}/agents/{agentId}` |
+| Suspend agent | Agents → Suspend | `POST /v1/owners/{id}/agents/{agentId}/suspend` |
+| Reinstate agent | Agents → Reinstate | `POST /v1/owners/{id}/agents/{agentId}/reinstate` |
+| Revoke agent | Agents → Revoke | `POST /v1/owners/{id}/agents/{agentId}/revoke` |
+| View API keys | API Keys | `GET /v1/owners/{id}/api-keys` |
+| Create API key | API Keys → Create New Key | `POST /v1/owners/{id}/api-keys` |
+| Revoke API key | API Keys → Revoke | `DELETE /v1/owners/{id}/api-keys/{keyId}` |
+| View audit logs | Audit Logs | `GET /v1/audit` |

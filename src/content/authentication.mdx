@@ -5,6 +5,14 @@ description: API key types, session tokens, and security best practices for the 
 
 Procta uses two authentication mechanisms: **API keys** for programmatic access and **JWT session tokens** for dashboard login.
 
+## Base URL
+
+All API requests use the following base URL:
+
+```
+https://api.procta.org/v1
+```
+
 ## API Keys
 
 All authenticated endpoints require a Bearer token in the `Authorization` header:
