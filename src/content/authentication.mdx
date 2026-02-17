@@ -1,0 +1,62 @@
+---
+title: Authentication
+description: API key types, session tokens, and security best practices for the Procta API.
+---
+
+Procta uses two authentication mechanisms: **API keys** for programmatic access and **JWT session tokens** for dashboard login.
+
+## API Keys
+
+All authenticated endpoints require a Bearer token in the `Authorization` header:
+
+```ts
+const response = await fetch('https://api.procta.org/v1/owners/me', {
+  headers: { Authorization: `Bearer prc_owner_abc123...` },
+})
+```
+
+### Key types
+
+| Prefix | Type | Use case |
+| --- | --- | --- |
+| `prc_owner_` | Owner key | Manage agents, credentials, and account settings |
+| `prc_rp_` | Relying Party key | Verify agent actions and query audit logs |
+
+### Key lifecycle
+
+- Keys are returned **once** at registration and cannot be retrieved again
+- Keys are SHA-256 hashed before storage
+- You can generate additional keys from the dashboard or via the API
+- Revoked keys are immediately invalidated
+
+<Note type="danger" title="Key security">
+Never commit API keys to version control. Use environment variables or a secrets manager. If a key is compromised, revoke it immediately from the dashboard.
+</Note>
+
+## Session Tokens
+
+For dashboard access, authenticate with email and password to receive a JWT session token:
+
+```ts
+const response = await fetch('https://api.procta.org/v1/auth/login', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    email: 'admin@yourcompany.com',
+    password: 'your-password',
+  }),
+})
+const { token, user } = await response.json()
+// Use token as Bearer token for subsequent requests
+```
+
+## Password Management
+
+- **Set password** — Use after initial registration: `POST /v1/auth/set-password`
+- **Change password** — Requires current password: `POST /v1/auth/change-password`
+- **Set with API key** — For initial setup flows: `POST /v1/auth/set-password-with-api-key`
+
+## Identity Resolution
+
+Use `GET /v1/auth/me` to resolve the identity associated with any API key. Returns the owner or relying party details depending on the key type.
+

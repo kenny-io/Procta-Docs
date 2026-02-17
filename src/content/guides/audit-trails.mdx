@@ -1,0 +1,107 @@
+---
+title: Audit Trails
+description: Query, filter, and export verification audit logs for compliance and monitoring.
+---
+
+Every verification request processed by Procta is recorded as an immutable audit event. Use the audit API to monitor agent activity, investigate incidents, and generate compliance reports.
+
+## Querying Audit Events
+
+```ts
+const response = await fetch(
+  `https://api.procta.org/v1/audit?agentId=${agentId}&limit=50`,
+  {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+  }
+)
+const { events, pagination } = await response.json()
+```
+
+## Audit Event Schema
+
+Each event contains:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | uuid | Unique event identifier |
+| `agentId` | uuid | Agent that was verified |
+| `action` | string | The action that was checked |
+| `amount` | string | Transaction amount (if provided) |
+| `asset` | string | Asset type (if provided) |
+| `decision` | enum | `ALLOWED` or `DENIED` |
+| `reason` | string | Denial reason (if denied) |
+| `latencyMs` | number | Verification processing time |
+| `timestamp` | datetime | When the verification occurred |
+
+## Filtering by Date Range
+
+```bash
+curl "https://api.procta.org/v1/audit?\
+agentId={agentId}&\
+from=2025-01-01T00:00:00Z&\
+to=2025-01-31T23:59:59Z&\
+limit=100" \
+  -H "Authorization: Bearer ${apiKey}"
+```
+
+## Pagination
+
+Results are paginated with `limit` and `offset` parameters:
+
+| Parameter | Default | Max | Description |
+| --- | --- | --- | --- |
+| `limit` | 50 | 500 | Number of events per page |
+| `offset` | 0 | — | Number of events to skip |
+
+The response includes pagination metadata:
+
+```json
+{
+  "events": [...],
+  "pagination": {
+    "total": 1247,
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
+## CSV Export
+
+Export audit data as CSV for spreadsheet analysis or compliance reporting:
+
+```bash
+curl "https://api.procta.org/v1/audit?\
+agentId={agentId}&\
+format=csv&\
+from=2025-01-01T00:00:00Z" \
+  -H "Authorization: Bearer ${apiKey}" \
+  -o audit-report.csv
+```
+
+CSV columns: `id, agent_id, action, amount, asset, decision, reason, latency_ms, timestamp`
+
+## Monitoring Patterns
+
+### Detect unusual denial rates
+
+```ts
+const { events } = await fetchAuditEvents(agentId, { limit: 100 })
+const denials = events.filter((e) => e.decision === 'DENIED')
+const denialRate = denials.length / events.length
+
+if (denialRate > 0.1) {
+  alert(`High denial rate for agent ${agentId}: ${(denialRate * 100).toFixed(1)}%`)
+}
+```
+
+### Track verification latency
+
+```ts
+const avgLatency = events.reduce((sum, e) => sum + e.latencyMs, 0) / events.length
+console.log(`Average verification latency: ${avgLatency.toFixed(1)}ms`)
+```
+
+<Note type="info" title="Data retention">
+Audit events are retained indefinitely. Use date range filters to query specific time periods efficiently.
+</Note>

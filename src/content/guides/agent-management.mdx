@@ -1,0 +1,125 @@
+---
+title: Agent Management
+description: Full agent lifecycle — create, update, suspend, revoke, reinstate, and rotate keys.
+---
+
+This guide covers every operation in an agent's lifecycle on Procta.
+
+## Agent States
+
+| Status | Description | Can verify? |
+| --- | --- | --- |
+| `ACTIVE` | Agent is operational | Yes |
+| `SUSPENDED` | Temporarily paused — can be reinstated | No |
+| `REVOKED` | Permanently disabled | No |
+
+## Creating an Agent
+
+```ts
+const response = await fetch(
+  `https://api.procta.org/v1/owners/${ownerId}/agents`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${ownerApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: 'PaymentBot',
+      description: 'Handles outbound payments up to $1000',
+      scopes: ['payments:send', 'payments:receive'],
+      limits: { perTransaction: '1000', dailyLimit: '10000' },
+      environment: 'PRODUCTION',
+    }),
+  }
+)
+const { agent, vcJwt } = await response.json()
+```
+
+### Required fields
+
+- **scopes** — At least one scope string (e.g., `payments:send`)
+
+### Optional fields
+
+- **name** — Human-readable agent name
+- **description** — What the agent does
+- **limits** — Key-value pairs for transaction limits
+- **environment** — `PRODUCTION` or `SANDBOX` (defaults to `SANDBOX`)
+- **publicKey** — Agent's public key for credential binding
+
+## Updating an Agent
+
+Update scopes, limits, name, description, or public key:
+
+```ts
+await fetch(`https://api.procta.org/v1/agents/${agentId}`, {
+  method: 'PATCH',
+  headers: {
+    'Authorization': `Bearer ${ownerApiKey}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    scopes: ['payments:send', 'payments:receive', 'trading:execute'],
+    limits: { perTransaction: '5000', dailyLimit: '50000' },
+  }),
+})
+```
+
+<Note type="warning" title="Reissue credentials after updates">
+After updating scopes or limits, reissue the agent's credential so the new claims are reflected in the JWT. See [Credentials](/credentials).
+</Note>
+
+## Suspending an Agent
+
+Temporarily pause an agent. Suspended agents fail all verification checks.
+
+```bash
+curl -X POST https://api.procta.org/v1/agents/{id}/suspend \
+  -H "Authorization: Bearer prc_owner_..."
+```
+
+## Reinstating an Agent
+
+Bring a suspended agent back to active status. A new credential is issued.
+
+```bash
+curl -X POST https://api.procta.org/v1/agents/{id}/reinstate \
+  -H "Authorization: Bearer prc_owner_..."
+```
+
+Returns:
+
+```json
+{
+  "status": "active",
+  "vcJwt": "eyJhbGciOiJFZERTQSI..."
+}
+```
+
+## Revoking an Agent
+
+Permanently disable an agent. **This cannot be undone.**
+
+```bash
+curl -X POST https://api.procta.org/v1/agents/{id}/revoke \
+  -H "Authorization: Bearer prc_owner_..."
+```
+
+## Deleting an Agent
+
+Remove an agent entirely:
+
+```bash
+curl -X DELETE https://api.procta.org/v1/agents/{id} \
+  -H "Authorization: Bearer prc_owner_..."
+```
+
+## Listing Agents
+
+```bash
+curl https://api.procta.org/v1/owners/{ownerId}/agents \
+  -H "Authorization: Bearer prc_owner_..."
+```
+
+Returns all agents belonging to the owner with their current status, scopes, and limits.

@@ -1,0 +1,1587 @@
+openapi: 3.1.0
+info:
+  title: Procta API
+  description: |
+    Trust and attestation layer for autonomous financial agents.
+
+    Procta provides Know Your Agent (KYA) identity, verifiable credentials,
+    real-time verification, and a full audit trail for AI agents operating
+    in financial environments.
+
+    ## Authentication
+
+    All authenticated endpoints require a Bearer token in the `Authorization` header:
+    ```
+    Authorization: Bearer prc_owner_...
+    ```
+
+    There are two key types:
+    - **Owner keys** — prefixed `prc_owner_`, returned once at owner registration
+    - **Relying Party keys** — prefixed `prc_rp_`, returned once at RP registration
+
+    Keys are hashed (SHA-256) before storage and cannot be recovered. Store them securely.
+  version: 1.0.0
+  contact:
+    name: Procta
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Health
+    description: Service health and readiness checks
+  - name: Auth
+    description: Authentication and identity resolution
+  - name: Owners
+    description: Owner registration and management
+  - name: Relying Parties
+    description: Relying party registration
+  - name: Agents
+    description: Agent CRUD, lifecycle, and key rotation
+  - name: Credentials
+    description: Verifiable credential issuance and verification
+  - name: Verification
+    description: Real-time agent action verification
+  - name: Audit
+    description: Audit trail and event logs
+  - name: Webhooks
+    description: External service webhook handlers
+
+components:
+  securitySchemes:
+    ownerApiKey:
+      type: apiKey
+      name: Authorization
+      in: header
+      description: "Owner API key: `Bearer prc_owner_...`"
+    rpApiKey:
+      type: apiKey
+      name: Authorization
+      in: header
+      description: "Relying Party API key: `Bearer prc_rp_...`"
+    anyApiKey:
+      type: apiKey
+      name: Authorization
+      in: header
+      description: "Any API key: `Bearer prc_owner_...` or `Bearer prc_rp_...`"
+
+  schemas:
+    Owner:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        ownerType:
+          type: string
+          enum: [INDIVIDUAL, ORGANIZATION]
+        email:
+          type: string
+          format: email
+        verificationStatus:
+          type: string
+          enum: [PENDING, IN_REVIEW, VERIFIED, REJECTED]
+        riskBand:
+          type: string
+          nullable: true
+        jurisdiction:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, ownerType, email, verificationStatus, createdAt]
+
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kyaId:
+          type: string
+          description: "Know Your Agent identifier, prefixed with `kya_`"
+          example: kya_abc123def456
+        ownerId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [ACTIVE, SUSPENDED, REVOKED]
+        scopes:
+          type: array
+          items:
+            type: string
+          example: ["payments:send", "payments:receive"]
+        limits:
+          type: object
+          additionalProperties: true
+          example:
+            perTransaction: "1000"
+            dailyLimit: "10000"
+        environment:
+          type: string
+          enum: [PRODUCTION, SANDBOX]
+        name:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        profileImageUrl:
+          type: string
+          nullable: true
+          description: Base64-encoded data URI or URL of the agent's profile image
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, kyaId, ownerId, status, scopes, limits, environment, createdAt]
+
+    RelyingParty:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        contactEmail:
+          type: string
+          format: email
+        webhookUrl:
+          type: string
+          format: uri
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, name, contactEmail, createdAt]
+
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        agentId:
+          type: string
+          format: uuid
+        action:
+          type: string
+        amount:
+          type: string
+          nullable: true
+        asset:
+          type: string
+          nullable: true
+        decision:
+          type: string
+          enum: [ALLOWED, DENIED]
+        reason:
+          type: string
+          nullable: true
+        latencyMs:
+          type: number
+        timestamp:
+          type: string
+          format: date-time
+      required: [id, agentId, action, decision, latencyMs, timestamp]
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: Human-readable error message
+        statusCode:
+          type: integer
+      required: [error, message, statusCode]
+
+paths:
+  # ─── Health ───────────────────────────────────────────────
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /ready:
+    get:
+      tags: [Health]
+      summary: Readiness check
+      operationId: getReady
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ready
+                  database:
+                    type: string
+                    example: connected
+        "503":
+          description: Service is not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: not ready
+                  database:
+                    type: string
+                    example: disconnected
+
+  # ─── Auth ─────────────────────────────────────────────────
+  /v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user identity
+      description: Resolves the identity associated with the provided API key.
+      operationId: getAuthMe
+      security:
+        - anyApiKey: []
+      responses:
+        "200":
+          description: Current user identity
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    title: Owner identity
+                    properties:
+                      type:
+                        type: string
+                        const: owner
+                      id:
+                        type: string
+                        format: uuid
+                      email:
+                        type: string
+                        format: email
+                      ownerType:
+                        type: string
+                        enum: [INDIVIDUAL, ORGANIZATION]
+                      verificationStatus:
+                        type: string
+                        enum: [PENDING, IN_REVIEW, VERIFIED, REJECTED]
+                    required: [type, id, email, ownerType, verificationStatus]
+                  - type: object
+                    title: Relying Party identity
+                    properties:
+                      type:
+                        type: string
+                        const: relying_party
+                      id:
+                        type: string
+                        format: uuid
+                      name:
+                        type: string
+                      email:
+                        type: string
+                        format: email
+                    required: [type, id, name, email]
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email and password
+      description: |
+        Authenticates using email and password credentials.
+        Returns a JWT session token that can be used as a Bearer token for subsequent requests.
+      operationId: authLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 1
+              required: [email, password]
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: JWT session token
+                  user:
+                    oneOf:
+                      - type: object
+                        title: Owner user
+                        properties:
+                          type:
+                            type: string
+                            const: owner
+                          id:
+                            type: string
+                            format: uuid
+                          email:
+                            type: string
+                            format: email
+                          ownerType:
+                            type: string
+                            enum: [INDIVIDUAL, ORGANIZATION]
+                          verificationStatus:
+                            type: string
+                            enum: [PENDING, IN_REVIEW, VERIFIED, REJECTED]
+                        required: [type, id, email, ownerType, verificationStatus]
+                      - type: object
+                        title: Relying Party user
+                        properties:
+                          type:
+                            type: string
+                            const: relying_party
+                          id:
+                            type: string
+                            format: uuid
+                          name:
+                            type: string
+                          email:
+                            type: string
+                            format: email
+                        required: [type, id, name, email]
+                required: [token, user]
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/auth/set-password:
+    post:
+      tags: [Auth]
+      summary: Set password (authenticated)
+      description: |
+        Sets a password for the authenticated account. Requires API key authentication.
+        Use this after initial registration to set up password-based login.
+      operationId: authSetPassword
+      security:
+        - anyApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  minLength: 8
+                  description: New password (min 8 characters)
+              required: [password]
+      responses:
+        "200":
+          description: Password set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password set successfully
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/auth/set-password-with-api-key:
+    post:
+      tags: [Auth]
+      summary: Set password using API key in body
+      description: |
+        Sets a password by providing the API key in the request body (no auth header needed).
+        Useful for initial password setup flows where the key is passed from registration.
+      operationId: authSetPasswordWithApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                apiKey:
+                  type: string
+                  description: The API key received at registration
+                password:
+                  type: string
+                  minLength: 8
+                  description: New password (min 8 characters)
+              required: [apiKey, password]
+      responses:
+        "200":
+          description: Password set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password set successfully
+        "401":
+          description: Invalid or expired API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change password
+      description: Changes the password for the authenticated account. Requires current password.
+      operationId: authChangePassword
+      security:
+        - anyApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                currentPassword:
+                  type: string
+                  minLength: 1
+                newPassword:
+                  type: string
+                  minLength: 8
+              required: [currentPassword, newPassword]
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password changed successfully
+        "401":
+          description: Invalid credentials or missing auth
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ─── Owners ───────────────────────────────────────────────
+  /v1/owners:
+    post:
+      tags: [Owners]
+      summary: Register a new owner
+      description: |
+        Creates an owner account and returns a one-time API key.
+        The key is prefixed with `prc_owner_` and cannot be retrieved again.
+        Also initiates KYC verification via Sumsub.
+      operationId: createOwner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ownerType:
+                  type: string
+                  enum: [INDIVIDUAL, ORGANIZATION]
+                email:
+                  type: string
+                  format: email
+                jurisdiction:
+                  type: string
+                  description: ISO country code
+                password:
+                  type: string
+                  minLength: 8
+                  description: Account password (min 8 characters)
+              required: [ownerType, email, password]
+      responses:
+        "201":
+          description: Owner created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  owner:
+                    $ref: "#/components/schemas/Owner"
+                  apiKey:
+                    type: string
+                    description: One-time API key. Store it securely.
+                    example: prc_owner_abc123...
+                  kycUrl:
+                    type: string
+                    format: uri
+                    description: Sumsub KYC verification URL
+                required: [owner, apiKey, kycUrl]
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/owners/{id}:
+    get:
+      tags: [Owners]
+      summary: Get owner details
+      operationId: getOwner
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Owner details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Owner"
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Owner not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      tags: [Owners]
+      summary: Delete owner account
+      description: Soft-deletes the owner and all associated agents.
+      operationId: deleteOwner
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Owner deleted
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/owners/{id}/kyc-url:
+    post:
+      tags: [Owners]
+      summary: Get KYC verification URL
+      description: Returns a Sumsub KYC verification URL for the owner to complete identity verification.
+      operationId: getOwnerKycUrl
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: KYC URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kycUrl:
+                    type: string
+                    format: uri
+                    description: Sumsub verification URL
+                required: [kycUrl]
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Owner not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/owners/{id}/kyc-status:
+    get:
+      tags: [Owners]
+      summary: Get KYC verification status
+      description: Returns the current KYC verification status and risk band for the owner. Syncs with Sumsub if still pending.
+      operationId: getOwnerKycStatus
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: KYC status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verificationStatus:
+                    type: string
+                    enum: [PENDING, IN_REVIEW, VERIFIED, REJECTED]
+                  riskBand:
+                    type: string
+                    nullable: true
+                required: [verificationStatus]
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Owner not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ─── Relying Parties ──────────────────────────────────────
+  /v1/relying-parties:
+    post:
+      tags: [Relying Parties]
+      summary: Register a new relying party
+      description: |
+        Creates a relying party account and returns a one-time API key.
+        The key is prefixed with `prc_rp_` and cannot be retrieved again.
+      operationId: createRelyingParty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                contactEmail:
+                  type: string
+                  format: email
+                webhookUrl:
+                  type: string
+                  format: uri
+                password:
+                  type: string
+                  minLength: 8
+                  description: Account password (min 8 characters)
+                permissions:
+                  type: array
+                  items:
+                    type: string
+                  default: ["verify"]
+              required: [name, contactEmail, password]
+      responses:
+        "201":
+          description: Relying party created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  relyingParty:
+                    $ref: "#/components/schemas/RelyingParty"
+                  apiKey:
+                    type: string
+                    description: One-time API key. Store it securely.
+                    example: prc_rp_xyz789...
+                required: [relyingParty, apiKey]
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ─── Agents ───────────────────────────────────────────────
+  /v1/owners/{ownerId}/agents:
+    post:
+      tags: [Agents]
+      summary: Register a new agent
+      description: Creates an agent under the specified owner. Returns the agent with a verifiable credential JWT.
+      operationId: createAgent
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: ownerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  description: At least one scope is required
+                  example: ["payments:send", "payments:receive"]
+                limits:
+                  type: object
+                  additionalProperties: true
+                  default: {}
+                environment:
+                  type: string
+                  enum: [PRODUCTION, SANDBOX]
+                  default: SANDBOX
+                publicKey:
+                  type: string
+                  description: Optional public key for the agent
+                name:
+                  type: string
+                description:
+                  type: string
+              required: [scopes]
+      responses:
+        "201":
+          description: Agent created with verifiable credential
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent:
+                    $ref: "#/components/schemas/Agent"
+                  vcJwt:
+                    type: string
+                    description: Verifiable Credential JWT for the agent
+                required: [agent, vcJwt]
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: API key does not belong to the specified owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    get:
+      tags: [Agents]
+      summary: List agents for an owner
+      operationId: listAgents
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: ownerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Agent"
+                required: [agents]
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/agents/{id}:
+    get:
+      tags: [Agents]
+      summary: Get agent details
+      operationId: getAgent
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Agent details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "404":
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    patch:
+      tags: [Agents]
+      summary: Update agent
+      description: Update agent scopes, limits, name, description, or public key.
+      operationId: updateAgent
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                limits:
+                  type: object
+                  additionalProperties: true
+                publicKey:
+                  type: string
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        "200":
+          description: Agent updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      tags: [Agents]
+      summary: Delete agent
+      operationId: deleteAgent
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Agent deleted
+        "404":
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/agents/{id}/suspend:
+    post:
+      tags: [Agents]
+      summary: Suspend agent
+      description: Temporarily suspends an active agent. Can be reinstated later.
+      operationId: suspendAgent
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Agent suspended
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: suspended
+        "404":
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/agents/{id}/revoke:
+    post:
+      tags: [Agents]
+      summary: Revoke agent
+      description: Permanently revokes an agent. Revoked agents cannot be reinstated.
+      operationId: revokeAgent
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Agent revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: revoked
+        "404":
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/agents/{id}/reinstate:
+    post:
+      tags: [Agents]
+      summary: Reinstate suspended agent
+      description: Reinstates a previously suspended agent to active status. Returns a new verifiable credential.
+      operationId: reinstateAgent
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Agent reinstated with new credential
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: active
+                  vcJwt:
+                    type: string
+                    description: New verifiable credential JWT
+                required: [status, vcJwt]
+        "404":
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/agents/{id}/rotate-key:
+    post:
+      tags: [Agents]
+      summary: Rotate agent public key
+      description: Replaces the agent's public key and reissues the verifiable credential.
+      operationId: rotateAgentKey
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                publicKey:
+                  type: string
+              required: [publicKey]
+      responses:
+        "200":
+          description: Key rotated with new credential
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent:
+                    $ref: "#/components/schemas/Agent"
+                  vcJwt:
+                    type: string
+                    description: New verifiable credential JWT
+                required: [agent, vcJwt]
+        "404":
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/agents/lookup:
+    post:
+      tags: [Agents]
+      summary: Lookup agent verification status
+      description: |
+        Looks up an agent's verification status by KYA ID or verifiable credential JWT.
+        Returns whether the agent is verified (active agent + verified owner) along with agent and owner details.
+      operationId: lookupAgent
+      security:
+        - anyApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kya_id:
+                  type: string
+                  description: "Agent KYA identifier (starts with `kya_`)"
+                  pattern: "^kya_"
+                  example: kya_abc123def456
+                vcJwt:
+                  type: string
+                  description: Verifiable credential JWT (alternative to kya_id)
+              description: Provide either `kya_id` or `vcJwt`
+      responses:
+        "200":
+          description: Agent verification status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verified:
+                    type: boolean
+                    description: Whether the agent is fully verified
+                  agent:
+                    type: object
+                    properties:
+                      kyaId:
+                        type: string
+                      name:
+                        type: string
+                        nullable: true
+                      status:
+                        type: string
+                        enum: [ACTIVE, SUSPENDED, REVOKED]
+                      profileImageUrl:
+                        type: string
+                        nullable: true
+                      environment:
+                        type: string
+                        enum: [PRODUCTION, SANDBOX]
+                  owner:
+                    type: object
+                    properties:
+                      verificationStatus:
+                        type: string
+                        enum: [PENDING, IN_REVIEW, VERIFIED, REJECTED]
+                      riskBand:
+                        type: string
+                        nullable: true
+                  reason:
+                    type: string
+                    nullable: true
+                    description: Reason for non-verification (only present if verified is false)
+                required: [verified]
+        "400":
+          description: Validation error (missing kya_id/vcJwt or invalid credential)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/agents/verified:
+    get:
+      tags: [Agents]
+      summary: List all verified agents
+      description: Returns all agents that are active with verified owners.
+      operationId: listVerifiedAgents
+      security:
+        - anyApiKey: []
+      responses:
+        "200":
+          description: List of verified agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kyaId:
+                          type: string
+                        name:
+                          type: string
+                          nullable: true
+                        description:
+                          type: string
+                          nullable: true
+                        profileImageUrl:
+                          type: string
+                          nullable: true
+                        status:
+                          type: string
+                          enum: [ACTIVE]
+                        environment:
+                          type: string
+                          enum: [PRODUCTION, SANDBOX]
+                        scopes:
+                          type: array
+                          items:
+                            type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+                  total:
+                    type: integer
+                required: [agents, total]
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ─── Credentials ──────────────────────────────────────────
+  /v1/agents/{agentId}/credential:
+    get:
+      tags: [Credentials]
+      summary: Get active credential for agent
+      operationId: getCredential
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Active credential
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credential:
+                    type: object
+                    nullable: true
+                    description: Credential object or null if none exists
+
+  /v1/agents/{agentId}/credential/reissue:
+    post:
+      tags: [Credentials]
+      summary: Reissue credential
+      description: Revokes the current credential and issues a new one.
+      operationId: reissueCredential
+      security:
+        - ownerApiKey: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: New credential issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vcJwt:
+                    type: string
+                    description: New verifiable credential JWT
+                required: [vcJwt]
+
+  /v1/credentials/verify:
+    post:
+      tags: [Credentials]
+      summary: Verify a verifiable credential JWT
+      description: Public endpoint. Decodes and validates a VC JWT, checking signature and revocation status.
+      operationId: verifyCredential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vcJwt:
+                  type: string
+                  description: The verifiable credential JWT to verify
+              required: [vcJwt]
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    title: Valid credential
+                    properties:
+                      valid:
+                        type: boolean
+                        const: true
+                      payload:
+                        type: object
+                        description: Decoded JWT payload
+                    required: [valid, payload]
+                  - type: object
+                    title: Invalid credential
+                    properties:
+                      valid:
+                        type: boolean
+                        const: false
+                      error:
+                        type: string
+                        description: Reason the credential is invalid
+                    required: [valid, error]
+
+  # ─── Verification ─────────────────────────────────────────
+  /v1/verify:
+    post:
+      tags: [Verification]
+      summary: Verify an agent action
+      description: |
+        Real-time verification of an agent's ability to perform a specific action.
+        Checks agent status, scope authorization, and transaction limits.
+        Records the verification as an audit event.
+      operationId: verifyAction
+      security:
+        - rpApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kya_id:
+                  type: string
+                  description: "Agent KYA identifier, must start with `kya_`"
+                  pattern: "^kya_"
+                  example: kya_abc123def456
+                action:
+                  type: string
+                  minLength: 1
+                  description: The action the agent is attempting
+                  example: payments:send
+                amount:
+                  type: string
+                  description: Transaction amount (optional)
+                  example: "500.00"
+                asset:
+                  type: string
+                  description: Asset type (optional)
+                  example: USD
+                metadata:
+                  type: object
+                  additionalProperties: true
+                  description: Additional context for the verification
+              required: [kya_id, action]
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  decision:
+                    type: string
+                    enum: [ALLOWED, DENIED]
+                  reason:
+                    type: string
+                    nullable: true
+                    description: Reason for denial (if denied)
+                  agent:
+                    type: object
+                    description: Agent summary information
+                  latencyMs:
+                    type: number
+                    description: Verification processing time in milliseconds
+        "401":
+          description: Invalid or missing RP API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ─── Audit ────────────────────────────────────────────────
+  /v1/audit:
+    get:
+      tags: [Audit]
+      summary: Get audit events
+      description: |
+        Retrieves paginated audit events for a specific agent.
+        Supports date range filtering and CSV export.
+      operationId: getAuditEvents
+      security:
+        - anyApiKey: []
+      parameters:
+        - name: agentId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Agent ID to filter events for
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Start of date range (ISO 8601)
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: End of date range (ISO 8601)
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, csv]
+            default: json
+          description: Response format
+      responses:
+        "200":
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEvent"
+                  pagination:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      limit:
+                        type: integer
+                      offset:
+                        type: integer
+                    required: [total, limit, offset]
+                required: [events, pagination]
+            text/csv:
+              schema:
+                type: string
+                description: "CSV with columns: id, agent_id, action, amount, asset, decision, reason, latency_ms, timestamp"
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ─── Webhooks ─────────────────────────────────────────────
+  /v1/webhooks/sumsub:
+    post:
+      tags: [Webhooks]
+      summary: Sumsub KYC webhook
+      description: |
+        Receives KYC verification results from Sumsub.
+        Authenticated via HMAC-SHA256 signature in the `x-payload-digest` header.
+        Only processes `applicantReviewed` events.
+      operationId: sumsubWebhook
+      parameters:
+        - name: x-payload-digest
+          in: header
+          required: true
+          schema:
+            type: string
+          description: HMAC-SHA256 hex digest of the request body
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: Webhook event type
+                  example: applicantReviewed
+                externalUserId:
+                  type: string
+                  description: Owner ID
+                applicantId:
+                  type: string
+                reviewResult:
+                  type: object
+                  properties:
+                    reviewAnswer:
+                      type: string
+                      enum: [GREEN, RED, YELLOW]
+                    rejectLabels:
+                      type: array
+                      items:
+                        type: string
+                    reviewRejectType:
+                      type: string
+              required: [type, externalUserId, applicantId]
+      responses:
+        "200":
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+        "401":
+          description: Missing or invalid HMAC signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"

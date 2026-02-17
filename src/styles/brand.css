@@ -1,0 +1,25 @@
+:root {
+  /* Light theme brand tokens — Procta orange */
+  --brand-light-background: 0 0% 100%;
+  --brand-light-foreground: 222 45% 10%;
+  --brand-light-muted: 33 100% 96%;
+  --brand-light-border: 25 95% 82%;
+  --brand-light-accent: 21 90% 48%;
+  --brand-light-accent-foreground: 33 100% 96%;
+  --brand-light-ring: 21 90% 48%;
+  --brand-sidebar-active-bg-light: 25 95% 90% / 0.55;
+  --brand-sidebar-active-text-light: 17 80% 34%;
+
+  /* Dark theme brand tokens — Procta orange */
+  --brand-dark-background: 222 45% 6%;
+  --brand-dark-foreground: 0 0% 98%;
+  --brand-dark-muted: 222 35% 12%;
+  --brand-dark-border: 222 25% 14%;
+  --brand-dark-accent: 27 96% 61%;
+  --brand-dark-accent-foreground: 222 45% 6%;
+  --brand-dark-ring: 27 96% 61%;
+  --brand-sidebar-active-bg-dark: 25 70% 30% / 0.35;
+  --brand-sidebar-active-text-dark: 25 95% 82%;
+}
+
+

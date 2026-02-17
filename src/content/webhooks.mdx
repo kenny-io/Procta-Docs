@@ -1,0 +1,55 @@
+---
+title: Webhooks
+description: KYC verification webhooks and HMAC signature validation.
+---
+
+Procta receives webhooks from external services to update verification statuses in real-time.
+
+## Sumsub KYC Webhooks
+
+When an owner completes KYC verification through Sumsub, a webhook is sent to Procta's endpoint. The webhook updates the owner's `verificationStatus` based on the review result.
+
+### Event types
+
+| Event | Description |
+| --- | --- |
+| `applicantReviewed` | KYC review completed — status updated to VERIFIED or REJECTED |
+
+### Review results
+
+| Result | Procta Status | Description |
+| --- | --- | --- |
+| `GREEN` | `VERIFIED` | Identity verified successfully |
+| `RED` | `REJECTED` | Identity verification failed |
+
+## Signature Verification
+
+All Sumsub webhooks include an `x-payload-digest` header containing an HMAC-SHA256 hex digest. Procta validates this signature before processing any webhook.
+
+```ts
+import crypto from 'node:crypto'
+
+function verifyWebhookSignature(
+  payload: string,
+  signature: string,
+  secret: string
+): boolean {
+  const digest = crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex')
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(digest)
+  )
+}
+```
+
+<Note type="warning" title="Webhook security">
+Always validate the `x-payload-digest` header before processing webhook payloads. Requests with missing or invalid signatures are rejected with a `401` status.
+</Note>
+
+## Relying Party Webhooks
+
+Relying parties can configure a `webhookUrl` during registration to receive notifications about agent status changes. Events are delivered as POST requests with JSON payloads.
+

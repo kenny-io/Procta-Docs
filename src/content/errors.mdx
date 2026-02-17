@@ -1,0 +1,57 @@
+---
+title: Errors
+description: Standard error responses and error codes returned by the Procta API.
+---
+
+All error responses follow a consistent JSON schema with a machine-readable error code, human-readable message, and HTTP status code.
+
+```json
+{
+  "error": "VALIDATION_ERROR",
+  "message": "The scopes field is required and must contain at least one scope.",
+  "statusCode": 400
+}
+```
+
+## Error codes
+
+| Code | Status | Description |
+| --- | --- | --- |
+| `VALIDATION_ERROR` | 400 | Request body failed schema validation |
+| `UNAUTHORIZED` | 401 | Missing or invalid API key / session token |
+| `FORBIDDEN` | 403 | API key does not have permission for this resource |
+| `NOT_FOUND` | 404 | The requested resource does not exist |
+| `OWNER_NOT_VERIFIED` | 403 | Owner has not completed KYC verification |
+| `AGENT_SUSPENDED` | 403 | Agent is suspended and cannot perform actions |
+| `AGENT_REVOKED` | 403 | Agent has been permanently revoked |
+| `SCOPE_DENIED` | 403 | Agent does not have the required scope |
+| `LIMIT_EXCEEDED` | 403 | Transaction exceeds the agent's configured limits |
+| `EMAIL_NOT_VERIFIED` | 403 | Email address has not been verified |
+| `INTERNAL_ERROR` | 500 | Unexpected server error |
+
+## Handling errors
+
+```ts
+const response = await fetch('https://api.procta.org/v1/verify', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({ kya_id: 'kya_...', action: 'payments:send' }),
+})
+
+if (!response.ok) {
+  const error = await response.json()
+  console.error(`${error.error}: ${error.message}`)
+  // Handle specific error codes
+  if (error.error === 'SCOPE_DENIED') {
+    // Agent lacks the required permission
+  }
+}
+```
+
+<Note type="info" title="Debugging tip">
+Include the full error response when contacting support. The `error` code and `statusCode` help us identify the issue quickly.
+</Note>
+

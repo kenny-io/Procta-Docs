@@ -1,0 +1,110 @@
+---
+title: Owner Guide
+description: Complete guide for agent owners — registration, KYC, agent management, and API keys.
+---
+
+This guide walks through the full lifecycle of an agent owner on Procta, from registration to managing a fleet of AI agents.
+
+## Register as an Owner
+
+Create your owner account with your organization details:
+
+```bash
+curl -X POST https://api.procta.org/v1/owners \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ownerType": "ORGANIZATION",
+    "email": "admin@yourcompany.com",
+    "password": "secure-password-here",
+    "jurisdiction": "US"
+  }'
+```
+
+You'll receive:
+- **Owner profile** with a `PENDING` verification status
+- **One-time API key** prefixed with `prc_owner_`
+- **KYC URL** to complete identity verification
+
+<Note type="danger" title="Save your API key immediately">
+The API key is shown only once. Store it in a secure vault — it cannot be recovered.
+</Note>
+
+## Complete KYC Verification
+
+Visit the `kycUrl` returned at registration to complete identity verification through Sumsub. The process typically takes a few minutes.
+
+Your `verificationStatus` will progress through:
+
+| Status | Meaning |
+| --- | --- |
+| `PENDING` | KYC not yet started |
+| `IN_REVIEW` | KYC submitted, under review |
+| `VERIFIED` | Identity confirmed — you can register agents |
+| `REJECTED` | Verification failed — contact support |
+
+Check your status at any time:
+
+```bash
+curl https://api.procta.org/v1/owners/{id}/kyc-status \
+  -H "Authorization: Bearer prc_owner_..."
+```
+
+## Register Agents
+
+Once verified, register agents with specific scopes and transaction limits:
+
+```ts
+const response = await fetch(
+  `https://api.procta.org/v1/owners/${ownerId}/agents`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${ownerApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: 'PaymentBot',
+      description: 'Handles outbound payments',
+      scopes: ['payments:send', 'payments:receive'],
+      limits: { perTransaction: '1000', dailyLimit: '10000' },
+      environment: 'SANDBOX',
+    }),
+  }
+)
+const { agent, vcJwt } = await response.json()
+```
+
+Each agent receives:
+- A unique **KYA ID** (e.g., `kya_abc123def456`)
+- A **Verifiable Credential JWT** binding the agent to your verified identity
+
+## Manage API Keys
+
+You can create additional API keys and revoke compromised ones:
+
+```bash
+# List your API keys
+curl https://api.procta.org/v1/owners/{id}/api-keys \
+  -H "Authorization: Bearer prc_owner_..."
+
+# Create a new key
+curl -X POST https://api.procta.org/v1/owners/{id}/api-keys \
+  -H "Authorization: Bearer prc_owner_..."
+
+# Revoke a key
+curl -X DELETE https://api.procta.org/v1/owners/{id}/api-keys/{keyId} \
+  -H "Authorization: Bearer prc_owner_..."
+```
+
+## Dashboard Access
+
+Set a password to access the Procta dashboard:
+
+```bash
+curl -X POST https://api.procta.org/v1/auth/set-password \
+  -H "Authorization: Bearer prc_owner_..." \
+  -H "Content-Type: application/json" \
+  -d '{ "password": "your-dashboard-password" }'
+```
+
+The dashboard provides a visual interface for managing agents, viewing audit logs, and monitoring verification activity.

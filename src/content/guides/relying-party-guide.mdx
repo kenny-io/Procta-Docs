@@ -1,0 +1,111 @@
+---
+title: Relying Party Guide
+description: Integrate Procta verification into your platform to trust AI agent transactions.
+---
+
+Relying parties are platforms, exchanges, and financial services that interact with AI agents. This guide shows how to register as a relying party and integrate real-time agent verification.
+
+## Register as a Relying Party
+
+```bash
+curl -X POST https://api.procta.org/v1/relying-parties \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "AcmeExchange",
+    "contactEmail": "integrations@acme.exchange",
+    "password": "secure-password-here",
+    "webhookUrl": "https://acme.exchange/webhooks/procta",
+    "permissions": ["verify"]
+  }'
+```
+
+You'll receive:
+- **Relying party profile** with your organization details
+- **One-time API key** prefixed with `prc_rp_`
+
+<Note type="danger" title="Save your API key immediately">
+The API key is shown only once and cannot be recovered. Store it securely.
+</Note>
+
+## Verify Agent Actions
+
+Before processing any agent request, call the verification endpoint:
+
+```ts
+async function verifyAgent(kyaId: string, action: string, amount?: string) {
+  const response = await fetch('https://api.procta.org/v1/verify', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      kya_id: kyaId,
+      action,
+      amount,
+      asset: 'USD',
+    }),
+  })
+
+  const result = await response.json()
+
+  if (result.decision === 'ALLOWED') {
+    // Proceed with the transaction
+    return true
+  } else {
+    // Reject — log the reason
+    console.log(`Denied: ${result.reason}`)
+    return false
+  }
+}
+```
+
+## Lookup Agent Status
+
+You can check an agent's verification status without performing an action check:
+
+```ts
+const response = await fetch('https://api.procta.org/v1/agents/lookup', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({ kya_id: 'kya_abc123def456' }),
+})
+
+const { verified, agent, owner, reason } = await response.json()
+// verified: true/false
+// agent: { kyaId, name, status, environment }
+// owner: { verificationStatus, riskBand }
+```
+
+## Query Audit Logs
+
+Review verification history for any agent:
+
+```bash
+curl "https://api.procta.org/v1/audit?agentId={agentId}&limit=50&format=json" \
+  -H "Authorization: Bearer prc_rp_..."
+```
+
+Supports date range filtering with `from` and `to` parameters, and CSV export with `format=csv`.
+
+## Verify Credentials Directly
+
+You can also verify an agent's verifiable credential JWT without an API key:
+
+```bash
+curl -X POST https://api.procta.org/v1/credentials/verify \
+  -H "Content-Type: application/json" \
+  -d '{ "vcJwt": "eyJhbGciOiJFZERTQSI..." }'
+```
+
+This is useful for offline verification or when you want to inspect the credential claims directly.
+
+## Integration Best Practices
+
+- **Always verify before processing** — Never trust an agent's self-reported identity
+- **Cache verification results briefly** — Results are valid for the duration of a single transaction
+- **Handle denials gracefully** — Return clear error messages to the agent's owner
+- **Monitor audit logs** — Set up alerts for unusual verification patterns

@@ -1,0 +1,74 @@
+---
+title: Introduction
+description: Procta is the trust and attestation layer for autonomous financial agents.
+---
+
+Procta provides **Know Your Agent (KYA)** identity, verifiable credentials, real-time verification, and a full audit trail for AI agents operating in financial environments.
+
+## What Procta does
+
+- **KYA Identity** — Every agent receives a unique `kya_` identifier tied to a verified owner
+- **Verifiable Credentials** — W3C-compatible JWT credentials issued at agent registration
+- **Real-time Verification** — Sub-millisecond scope and limit checks before every transaction
+- **Audit Trail** — Immutable log of every verification decision with CSV export
+
+## Who uses Procta
+
+### Agent Owners
+
+Organizations or individuals who deploy autonomous financial agents. Owners register on Procta, complete KYC verification, then register their agents with specific scopes and transaction limits.
+
+### Relying Parties
+
+Platforms, exchanges, and financial services that interact with AI agents. Relying parties use Procta's verification API to confirm an agent's identity, authorization scope, and transaction limits before processing requests.
+
+<Note type="info" title="Base URL">
+All API requests use `https://api.procta.org/v1` as the base URL. See the [API Reference](/api/reference) for the full endpoint list.
+</Note>
+
+## How it works
+
+<CodeGroup title="Verify an agent action">
+
+```ts
+const response = await fetch('https://api.procta.org/v1/verify', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    kya_id: 'kya_abc123def456',
+    action: 'payments:send',
+    amount: '500.00',
+    asset: 'USD',
+  }),
+})
+const result = await response.json()
+// { decision: "ALLOWED", agent: {...}, latencyMs: 12 }
+```
+
+```python
+import os
+import requests
+
+response = requests.post(
+    "https://api.procta.org/v1/verify",
+    headers={"Authorization": f"Bearer {os.environ['PROCTA_RP_KEY']}"},
+    json={
+        "kya_id": "kya_abc123def456",
+        "action": "payments:send",
+        "amount": "500.00",
+        "asset": "USD",
+    },
+)
+print(response.json())
+# {"decision": "ALLOWED", "agent": {...}, "latencyMs": 12}
+```
+
+</CodeGroup>
+
+<Note type="warning" title="API keys are one-time">
+API keys are shown only once at registration. They are SHA-256 hashed before storage and cannot be recovered. Store them securely immediately.
+</Note>
+

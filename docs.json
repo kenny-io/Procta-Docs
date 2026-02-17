@@ -1,0 +1,73 @@
+{
+  "tabs": [
+    {
+      "tab": "Overview",
+      "groups": [
+        {
+          "group": "Getting Started",
+          "pages": ["introduction", "quickstart"]
+        },
+        {
+          "group": "Core Concepts",
+          "pages": ["authentication", "verification", "credentials"]
+        },
+        {
+          "group": "Integrations",
+          "pages": ["webhooks", "sdks"]
+        },
+        {
+          "group": "References",
+          "pages": ["errors", "api/reference"]
+        }
+      ]
+    },
+    {
+      "tab": "Guides",
+      "groups": [
+        {
+          "group": "For Agent Owners",
+          "pages": ["guides/owner-guide", "guides/agent-management"]
+        },
+        {
+          "group": "For Relying Parties",
+          "pages": ["guides/relying-party-guide", "guides/verification-integration"]
+        },
+        {
+          "group": "Advanced",
+          "pages": ["guides/key-rotation", "guides/audit-trails"]
+        }
+      ]
+    },
+    {
+      "tab": "API Reference",
+      "api": {
+        "source": "openapi.yaml",
+        "tagsOrder": ["Health", "Auth", "Owners", "Relying Parties", "Agents", "Credentials", "Verification", "Audit", "Webhooks"],
+        "defaultGroup": "General",
+        "overrides": {
+          "GET /health": {
+            "title": "Health check",
+            "description": "Check if the Procta API is healthy."
+          },
+          "POST /v1/owners": {
+            "title": "Register owner",
+            "description": "Create an owner account and receive a one-time API key."
+          },
+          "POST /v1/owners/{ownerId}/agents": {
+            "title": "Register agent",
+            "description": "Create an agent under an owner and receive a verifiable credential."
+          },
+          "POST /v1/verify": {
+            "title": "Verify action",
+            "description": "Real-time verification of an agent's ability to perform an action.",
+            "badge": "Core"
+          }
+        }
+      }
+    },
+    {
+      "tab": "Changelog",
+      "href": "/changelog"
+    }
+  ]
+}

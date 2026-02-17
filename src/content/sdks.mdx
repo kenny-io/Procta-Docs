@@ -1,0 +1,109 @@
+---
+title: SDKs & Integration
+description: Integrate Procta into your application using the REST API directly.
+---
+
+Procta exposes a standard REST API that works with any HTTP client. All endpoints accept and return JSON.
+
+## JavaScript / TypeScript
+
+<CodeGroup title="Common Procta operations">
+
+```ts
+// Register an agent
+const agentResponse = await fetch(
+  `https://api.procta.org/v1/owners/${ownerId}/agents`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.PROCTA_OWNER_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: 'TradingBot',
+      scopes: ['payments:send', 'trading:execute'],
+      limits: { perTransaction: '5000', dailyLimit: '50000' },
+      environment: 'PRODUCTION',
+    }),
+  }
+)
+const { agent, vcJwt } = await agentResponse.json()
+
+// Verify an agent action
+const verifyResponse = await fetch('https://api.procta.org/v1/verify', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    kya_id: agent.kyaId,
+    action: 'trading:execute',
+    amount: '1000.00',
+    asset: 'USDC',
+  }),
+})
+const { decision } = await verifyResponse.json()
+```
+
+## Python
+
+```python
+import os
+import requests
+
+BASE_URL = "https://api.procta.org/v1"
+HEADERS = {
+    "Authorization": f"Bearer {os.environ['PROCTA_OWNER_KEY']}",
+    "Content-Type": "application/json",
+}
+
+# Register an agent
+agent_resp = requests.post(
+    f"{BASE_URL}/owners/{owner_id}/agents",
+    headers=HEADERS,
+    json={
+        "name": "TradingBot",
+        "scopes": ["payments:send", "trading:execute"],
+        "limits": {"perTransaction": "5000", "dailyLimit": "50000"},
+        "environment": "PRODUCTION",
+    },
+)
+data = agent_resp.json()
+kya_id = data["agent"]["kyaId"]
+
+# Verify an agent action
+verify_resp = requests.post(
+    f"{BASE_URL}/verify",
+    headers={
+        "Authorization": f"Bearer {os.environ['PROCTA_RP_KEY']}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "kya_id": kya_id,
+        "action": "trading:execute",
+        "amount": "1000.00",
+        "asset": "USDC",
+    },
+)
+print(verify_resp.json()["decision"])
+```
+
+</CodeGroup>
+
+## Base URL
+
+All API requests use the following base URL:
+
+```
+https://api.procta.org/v1
+```
+
+## Content Type
+
+All request and response bodies use `application/json`. Set the `Content-Type` header accordingly.
+
+<Note type="info" title="Full API reference">
+See the [API Reference](/api/reference) for the complete list of endpoints, request schemas, and response formats.
+</Note>
+

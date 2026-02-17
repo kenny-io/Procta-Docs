@@ -1,0 +1,72 @@
+---
+title: Key Rotation
+description: Rotate agent public keys and reissue credentials without downtime.
+---
+
+Key rotation is a security best practice that replaces an agent's cryptographic key pair and reissues its verifiable credential. Procta supports zero-downtime key rotation.
+
+## When to Rotate Keys
+
+- **Scheduled rotation** — Rotate keys on a regular cadence (e.g., every 90 days)
+- **Suspected compromise** — Rotate immediately if a private key may have been exposed
+- **Personnel changes** — Rotate when team members with key access leave the organization
+
+## Rotating an Agent's Public Key
+
+```ts
+const response = await fetch(
+  `https://api.procta.org/v1/agents/${agentId}/rotate-key`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${ownerApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      publicKey: newPublicKeyPem,
+    }),
+  }
+)
+const { agent, vcJwt } = await response.json()
+// New credential JWT bound to the new public key
+```
+
+## What Happens During Rotation
+
+1. The agent's public key is replaced with the new key
+2. The existing verifiable credential is revoked
+3. A new credential is issued with the new key binding
+4. The old credential immediately becomes invalid
+
+<Note type="warning" title="Credential invalidation">
+After key rotation, any previously issued credential JWTs will fail verification. Make sure all systems using the credential are updated with the new `vcJwt`.
+</Note>
+
+## Reissuing Credentials
+
+If you need to reissue a credential without changing the key (e.g., after updating scopes):
+
+```bash
+curl -X POST https://api.procta.org/v1/agents/{agentId}/credential/reissue \
+  -H "Authorization: Bearer prc_owner_..."
+```
+
+## API Key Rotation
+
+For owner and relying party API keys, create a new key before revoking the old one:
+
+```bash
+# 1. Create a new key
+curl -X POST https://api.procta.org/v1/owners/{id}/api-keys \
+  -H "Authorization: Bearer prc_owner_old..."
+
+# 2. Update your systems with the new key
+
+# 3. Revoke the old key
+curl -X DELETE https://api.procta.org/v1/owners/{id}/api-keys/{oldKeyId} \
+  -H "Authorization: Bearer prc_owner_new..."
+```
+
+<Note type="info" title="Zero-downtime rotation">
+Always create the new key before revoking the old one. Both keys are valid simultaneously until you explicitly revoke the old key.
+</Note>

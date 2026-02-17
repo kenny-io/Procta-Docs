@@ -1,0 +1,138 @@
+---
+title: Verification Integration
+description: Step-by-step guide to integrating Procta's real-time verification into your platform.
+---
+
+This guide provides detailed integration patterns for adding Procta verification to your existing platform.
+
+## Middleware Pattern
+
+The most common integration is a middleware that verifies agent identity before processing requests:
+
+```ts
+import type { Request, Response, NextFunction } from 'express'
+
+async function proctaVerification(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const kyaId = req.headers['x-agent-kya-id'] as string
+  const action = req.path.includes('/payments') ? 'payments:send' : 'read'
+
+  if (!kyaId) {
+    return res.status(401).json({ error: 'Missing agent KYA ID' })
+  }
+
+  const response = await fetch('https://api.procta.org/v1/verify', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      kya_id: kyaId,
+      action,
+      amount: req.body?.amount,
+      asset: req.body?.asset,
+    }),
+  })
+
+  const result = await response.json()
+
+  if (result.decision === 'DENIED') {
+    return res.status(403).json({
+      error: 'AGENT_VERIFICATION_FAILED',
+      reason: result.reason,
+    })
+  }
+
+  // Attach agent info to request for downstream use
+  req.agent = result.agent
+  next()
+}
+
+// Apply to routes that handle agent transactions
+app.use('/api/payments', proctaVerification)
+```
+
+## Credential Verification Pattern
+
+For scenarios where you need to verify an agent's credential offline:
+
+```ts
+async function verifyAgentCredential(vcJwt: string) {
+  const response = await fetch(
+    'https://api.procta.org/v1/credentials/verify',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vcJwt }),
+    }
+  )
+
+  const result = await response.json()
+
+  if (!result.valid) {
+    throw new Error(`Invalid credential: ${result.error}`)
+  }
+
+  return result.payload.vc.credentialSubject
+}
+```
+
+## Error Handling
+
+Always handle verification failures gracefully:
+
+```ts
+try {
+  const result = await verifyAgent(kyaId, action, amount)
+
+  switch (result.decision) {
+    case 'ALLOWED':
+      // Process the transaction
+      break
+    case 'DENIED':
+      // Log and return appropriate error
+      logger.warn('Agent verification denied', {
+        kyaId,
+        action,
+        reason: result.reason,
+      })
+      break
+  }
+} catch (error) {
+  // Network error or Procta unavailable
+  // Implement your fallback policy
+  logger.error('Procta verification unavailable', { error })
+}
+```
+
+<Note type="warning" title="Fail-safe policy">
+Decide upfront whether your platform should fail-open (allow transactions when Procta is unreachable) or fail-closed (deny all transactions). Most financial platforms should fail-closed.
+</Note>
+
+## Testing with Sandbox
+
+Use `SANDBOX` environment agents for testing. They behave identically to production agents but are clearly marked in audit logs.
+
+```ts
+// Create a sandbox agent for testing
+const response = await fetch(
+  `https://api.procta.org/v1/owners/${ownerId}/agents`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${ownerApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: 'TestBot',
+      scopes: ['payments:send'],
+      limits: { perTransaction: '100' },
+      environment: 'SANDBOX',
+    }),
+  }
+)
+```

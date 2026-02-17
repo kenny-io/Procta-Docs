@@ -1,0 +1,49 @@
+---
+title: API Reference
+description: Complete reference for all Procta API endpoints.
+---
+
+## Overview
+
+The Procta API is organized around REST. All endpoints accept and return JSON, use standard HTTP methods, and return conventional HTTP status codes.
+
+## Base URL
+
+```
+https://api.procta.org/v1
+```
+
+## Authentication
+
+Most endpoints require a Bearer token in the `Authorization` header. See [Authentication](/authentication) for details on key types and management.
+
+```
+Authorization: Bearer prc_owner_abc123...
+```
+
+## API Categories
+
+| Category | Description |
+| --- | --- |
+| **Health** | Service health and readiness checks |
+| **Auth** | Login, identity resolution, password management |
+| **Owners** | Owner registration, KYC, and account management |
+| **Relying Parties** | Relying party registration and configuration |
+| **Agents** | Agent CRUD, lifecycle (suspend/revoke/reinstate), key rotation |
+| **Credentials** | Verifiable credential issuance, verification, and reissuance |
+| **Verification** | Real-time agent action verification |
+| **Audit** | Audit trail queries with pagination and CSV export |
+| **Webhooks** | External service webhook handlers (Sumsub KYC) |
+
+## Interactive Reference
+
+Browse the **API Reference** tab in the sidebar to explore every endpoint interactively. Each endpoint page includes:
+
+- Request parameters and body schema
+- Response formats with examples
+- Authentication requirements
+- Try-it console for live testing
+
+<Note type="info" title="OpenAPI Spec">
+The API reference is auto-generated from our OpenAPI 3.1 specification. You can download the raw spec for use with code generators or API clients.
+</Note>
