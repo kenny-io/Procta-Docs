@@ -126,7 +126,7 @@ const response = await fetch('https://api.procta.org/v1/agents/lookup', {
     'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
     'Content-Type': 'application/json',
   },
-  body: JSON.stringify({ kya_id: 'kya_abc123def456' }),
+  body: JSON.stringify({ kya_id: 'kya_01khm4wne0d583nsxgzgs14ej0' }),
 })
 
 const { verified, agent, owner } = await response.json()
