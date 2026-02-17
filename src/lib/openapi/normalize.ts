@@ -131,7 +131,7 @@ function normalizeOperation(options: NormalizeOperationOptions): NormalizedOpera
   const operationParameters = extractParameters(options.rawOperation.parameters)
   const { groupedParameters, parameterPrefill } = normalizeParameters([...pathLevelParameters, ...operationParameters], options.resolveRef)
   const { body: requestBody, sample: requestBodySample } = normalizeRequestBody(options.rawOperation.requestBody, options.resolveRef)
-  const responses = normalizeResponses(options.rawOperation.responses)
+  const responses = normalizeResponses(options.rawOperation.responses, options.resolveRef)
   const security = normalizeSecurity(options.rawOperation.security ?? options.documentSecurity)
 
   const operationServers = normalizeServers(options.rawOperation.servers)
@@ -274,7 +274,7 @@ function normalizeRequestBody(
   }
 }
 
-function normalizeResponses(raw: unknown): Array<NormalizedResponse> {
+function normalizeResponses(raw: unknown, resolveRef: (ref: string) => RawObject | null): Array<NormalizedResponse> {
   if (!raw || typeof raw !== 'object') {
     return []
   }
@@ -282,21 +282,30 @@ function normalizeResponses(raw: unknown): Array<NormalizedResponse> {
     .map(([code, response]) => ({
       code,
       description: typeof response.description === 'string' ? response.description : undefined,
-      contents: normalizeContent(response.content),
+      contents: normalizeContent(response.content, resolveRef),
     }))
     .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
 }
 
-function normalizeContent(raw: unknown): Array<NormalizedMediaType> {
+function normalizeContent(raw: unknown, resolveRef?: (ref: string) => RawObject | null): Array<NormalizedMediaType> {
   if (!raw || typeof raw !== 'object') {
     return []
   }
-  return Object.entries(raw as Record<string, RawObject>).map(([mediaType, definition]) => ({
-    mediaType,
-    schema: typeof definition.schema === 'object' ? (definition.schema as Record<string, unknown>) : undefined,
-    example: definition.example,
-    examples: normalizeExamples(definition.examples),
-  }))
+  return Object.entries(raw as Record<string, RawObject>).map(([mediaType, definition]) => {
+    let schema = typeof definition.schema === 'object' ? (definition.schema as Record<string, unknown>) : undefined
+    if (schema && typeof schema.$ref === 'string' && resolveRef) {
+      const resolved = resolveRef(schema.$ref as string)
+      if (resolved) {
+        schema = resolved as Record<string, unknown>
+      }
+    }
+    return {
+      mediaType,
+      schema,
+      example: definition.example,
+      examples: normalizeExamples(definition.examples),
+    }
+  })
 }
 
 function normalizeExamples(raw: unknown): Array<{ key: string; summary?: string; description?: string; value: unknown }> {

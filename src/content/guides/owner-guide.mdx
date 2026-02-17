@@ -5,7 +5,9 @@ description: Step-by-step guide for agent owners — register, verify identity, 
 
 This guide walks you through the complete lifecycle of an agent owner on Procta, from registration to managing your AI agents.
 
-## Step 1: Create Your Owner Account
+<Steps>
+
+<Step title="Create Your Owner Account">
 
 1. Visit the [Procta owner registration page](https://procta.org/register/owner)
 2. Select your **Owner Type**:
@@ -25,7 +27,9 @@ You'll receive:
 The API key is shown only once and cannot be recovered. Store it securely in a secrets manager or environment variable.
 </Note>
 
-## Step 2: Verify Your Email
+</Step>
+
+<Step title="Verify Your Email">
 
 Before you can log in, you must verify your email address:
 
@@ -46,11 +50,13 @@ curl -X POST https://api.procta.org/v1/auth/email-verification/verify \
 
 3. Once verified, you can log in at [procta.org/login](https://procta.org/login)
 
-## Step 3: Complete Identity Verification
+</Step>
+
+<Step title="Complete Identity Verification">
 
 Your verification path depends on your owner type:
 
-### Individual Owners — KYC via Dashboard
+**Individual Owners — KYC via Dashboard**
 
 1. Log in to the dashboard
 2. Navigate to **Identity Verification** in the sidebar
@@ -62,7 +68,7 @@ Your verification path depends on your owner type:
 
 Status updates automatically — refresh the page to see changes.
 
-### Organization Owners — KYB Document Submission
+**Organization Owners — KYB Document Submission**
 
 1. Log in to the dashboard
 2. Navigate to **Identity Verification**
@@ -102,7 +108,7 @@ curl -X POST https://api.procta.org/v1/owners/{id}/kyb \
   }'
 ```
 
-### Verification Statuses
+**Verification Statuses**
 
 | Status | Meaning |
 |--------|---------|
@@ -119,7 +125,9 @@ curl https://api.procta.org/v1/owners/{id}/kyc-status \
   -H "Authorization: Bearer prc_owner_..."
 ```
 
-## Step 4: Register Your First Agent
+</Step>
+
+<Step title="Register Your First Agent">
 
 Once verified (or with the 1-agent limit for pending organizations):
 
@@ -161,7 +169,9 @@ const response = await fetch(
 const { agent, vcJwt } = await response.json()
 ```
 
-## Step 5: Manage Your Agents
+</Step>
+
+<Step title="Manage Your Agents">
 
 From the dashboard **Agents** section:
 
@@ -176,7 +186,9 @@ Agent statuses:
 - `SUSPENDED` — Temporarily paused (can be reinstated)
 - `REVOKED` — Permanently disabled (cannot be reinstated)
 
-## Step 6: Manage API Keys
+</Step>
+
+<Step title="Manage API Keys">
 
 From the dashboard **API Keys** section:
 
@@ -200,7 +212,9 @@ curl -X DELETE https://api.procta.org/v1/owners/{id}/api-keys/{keyId} \
   -H "Authorization: Bearer prc_owner_..."
 ```
 
-## Step 7: View Audit Logs
+</Step>
+
+<Step title="View Audit Logs">
 
 From the dashboard **Audit Logs** section:
 
@@ -214,6 +228,10 @@ Or query via API:
 curl "https://api.procta.org/v1/audit?agentId={agentId}&limit=50" \
   -H "Authorization: Bearer prc_owner_..."
 ```
+
+</Step>
+
+</Steps>
 
 ## Dashboard Overview
 

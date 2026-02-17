@@ -29,8 +29,8 @@ info:
 servers:
   - url: https://api.procta.org
     description: Production
-  - url: http://localhost:3000
-    description: Local development
+  # - url: http://localhost:3000
+  #   description: Local development
 
 tags:
   - name: Health

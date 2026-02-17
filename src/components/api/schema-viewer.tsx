@@ -83,7 +83,7 @@ function SchemaField({ name, schema, required = false, level = 0 }: SchemaFieldP
         </div>
       ) : null}
       {schema.$ref && typeof schema.$ref === 'string' ? (
-        <p className="text-xs text-foreground/60">Reference: {schema.$ref}</p>
+        <p className="text-xs text-foreground/60">{type} schema</p>
       ) : null}
     </div>
   )

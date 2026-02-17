@@ -5,7 +5,9 @@ description: Step-by-step guide for platforms and exchanges to verify AI agent a
 
 This guide walks you through verifying AI agent actions using the Procta dashboard and API. Relying parties are platforms, exchanges, and financial services that interact with AI agents.
 
-## Step 1: Create Your Account
+<Steps>
+
+<Step title="Create Your Account">
 
 1. Visit the [Procta registration page](https://procta.org/register/rp)
 2. Fill in your platform details:
@@ -22,7 +24,9 @@ You'll receive:
 The API key is shown only once. Store it in a secure environment variable or secrets manager. If lost, you can generate a new one from the dashboard.
 </Note>
 
-## Step 2: Log In and View Dashboard
+</Step>
+
+<Step title="Log In and View Dashboard">
 
 1. Go to the [Procta login page](https://procta.org/login)
 2. Enter your email and password
@@ -33,7 +37,9 @@ The dashboard shows:
 - Verification activity (recent agent verifications)
 - API usage statistics
 
-## Step 3: Verify an Agent Action
+</Step>
+
+<Step title="Verify an Agent Action">
 
 When an AI agent requests to perform an action on your platform, verify it before processing. You can do this via API:
 
@@ -72,7 +78,9 @@ The API checks four things in a single call:
 3. **Scope authorization** — Does the agent have permission for this action?
 4. **Transaction limits** — Is the amount within the agent's configured limits?
 
-## Step 4: Review Verification History
+</Step>
+
+<Step title="Review Verification History">
 
 From the dashboard:
 1. Navigate to **Audit Logs** in the sidebar
@@ -92,7 +100,9 @@ curl "https://api.procta.org/v1/audit?limit=50&format=json" \
 
 Supports filtering by `agentId`, date range (`from`, `to`), and CSV export with `format=csv`.
 
-## Step 5: Manage API Keys
+</Step>
+
+<Step title="Manage API Keys">
 
 From the dashboard **API Keys** section:
 1. View all your API keys (only the prefix is shown for security)
@@ -115,7 +125,9 @@ curl -X DELETE https://api.procta.org/v1/relying-parties/{id}/api-keys/{keyId} \
   -H "Authorization: Bearer prc_rp_..."
 ```
 
-## Step 6: Look Up an Agent
+</Step>
+
+<Step title="Look Up an Agent">
 
 Before processing a transaction, you can check an agent's identity and status:
 
@@ -135,7 +147,9 @@ const { verified, agent, owner } = await response.json()
 // owner: { verificationStatus, riskBand }
 ```
 
-## Step 7: Verify Credentials Directly
+</Step>
+
+<Step title="Verify Credentials Directly">
 
 If an agent presents a Verifiable Credential JWT, you can verify it without an API key:
 
@@ -146,6 +160,10 @@ curl -X POST https://api.procta.org/v1/credentials/verify \
 ```
 
 This is useful for offline verification or when you want to inspect the credential claims directly.
+
+</Step>
+
+</Steps>
 
 ## Integration Best Practices
 

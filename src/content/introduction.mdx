@@ -28,6 +28,8 @@ All API requests use `https://api.procta.org/v1` as the base URL. See the [API R
 
 ## How it works
 
+When an AI agent attempts an action on a relying party's platform, the platform calls Procta's verification API. In a single request, Procta checks the agent's identity, owner verification status, scope authorization, and transaction limits — then returns an `ALLOWED` or `DENIED` decision.
+
 <CodeGroup title="Verify an agent action">
 
 ```ts
