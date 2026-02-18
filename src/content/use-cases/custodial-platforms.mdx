@@ -1,0 +1,136 @@
+---
+title: Custodial Platforms
+description: How exchanges, custodians, and prime brokers use Procta to verify agent-initiated actions with KYA-backed delegation, withdrawal scopes, and real-time limit enforcement.
+---
+
+Exchanges, custodians, and prime brokers hold assets on behalf of clients. They operate under financial regulations that require them to know who is accessing customer accounts and what actions are being taken. Historically, that meant verifying human users through KYC and enforcing access controls through passwords, 2FA, and session management.
+
+Now, autonomous agents are entering the picture. A customer deploys a trading bot that places orders through the exchange's API. A portfolio manager uses an agent to rebalance across multiple custodial accounts. A payment processor uses an agent to initiate withdrawals on behalf of merchants. These agents act with the customer's authority, but the custodian has no standardized way to verify that authority.
+
+The custodian receives an API request. It comes from an agent, not a human. The custodian can verify the API key, but it cannot answer the questions that matter: Is this agent authorized by the account holder? Is it allowed to withdraw, or only trade? Is the requested amount within the customer's approved limits? Who is accountable if something goes wrong?
+
+## What goes wrong without verification
+
+Custodial platforms face a specific set of risks when agents operate without identity verification:
+
+- A customer's trading bot is compromised and initiates a withdrawal. The custodian processes it because the API key is valid, even though the bot was only intended to trade — not withdraw.
+- An agent registered under one customer's account attempts to access another customer's funds. The custodian's API key validation doesn't catch the cross-account access because both accounts belong to the same organization.
+- A customer disputes an agent-initiated transaction. The custodian has API logs showing the request, but no structured record of whether the agent was authorized for that specific action type and amount.
+- A regulator asks the custodian to demonstrate that automated systems acting on customer accounts are subject to the same identity and authorization controls as human users. The custodian has no framework to show.
+
+These risks are not hypothetical. As agent adoption grows, custodians that don't verify agent identity and authorization will face increasing regulatory scrutiny and operational liability.
+
+## How Procta fits into the custodial flow
+
+Procta extends the custodian's existing compliance framework to cover autonomous agents. The key concept is **KYA (Know Your Agent)** — a structured identity and authorization layer that links every agent back to a verified customer.
+
+The **customer** (already KYC/KYB-verified by the custodian) registers as an owner on Procta and registers their agent with specific scopes. A trading bot might get `trading:spot` and `account:read`. A withdrawal agent might get `withdrawal:crypto` with a per-transaction limit of $25,000.
+
+Procta issues the agent a `kya_` identifier linked to the customer's verified identity. The custodian can map this identifier to the customer's existing account.
+
+When the agent submits a request to the custodian — a trade, a withdrawal, a transfer — the custodian calls Procta's `/verify` endpoint with the agent's `kya_id`, the action, and the amount.
+
+Procta checks the agent's identity, the owner's verification status, scope authorization, and transaction limits. It returns `ALLOWED` or `DENIED`.
+
+The custodian processes the request only if the decision is `ALLOWED`. Every decision is logged in Procta's immutable audit trail.
+
+<CodeGroup title="Verify an agent-initiated withdrawal">
+
+```ts
+async function processWithdrawal(agent: Agent, amount: string, asset: string, destination: string) {
+  // Verify the agent is authorized for this withdrawal
+  const check = await fetch('https://api.procta.org/v1/verify', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      kya_id: agent.kyaId,
+      action: 'withdrawal:crypto',
+      amount,
+      asset,
+    }),
+  })
+  const result = await check.json()
+
+  if (result.decision !== 'ALLOWED') {
+    await flagForReview(agent.kyaId, 'withdrawal_denied', result.reason)
+    throw new Error(`Withdrawal denied: ${result.reason}`)
+  }
+
+  // Proceed with the withdrawal
+  await executeWithdrawal(agent.accountId, amount, asset, destination)
+}
+```
+
+```python
+import os, requests
+
+def process_withdrawal(agent, amount, asset, destination):
+    # Verify the agent is authorized for this withdrawal
+    response = requests.post(
+        "https://api.procta.org/v1/verify",
+        headers={"Authorization": f"Bearer {os.environ['PROCTA_RP_KEY']}"},
+        json={
+            "kya_id": agent.kya_id,
+            "action": "withdrawal:crypto",
+            "amount": amount,
+            "asset": asset,
+        },
+    )
+    result = response.json()
+
+    if result["decision"] != "ALLOWED":
+        flag_for_review(agent.kya_id, "withdrawal_denied", result["reason"])
+        raise PermissionError(f"Withdrawal denied: {result['reason']}")
+
+    # Proceed with the withdrawal
+    execute_withdrawal(agent.account_id, amount, asset, destination)
+```
+
+</CodeGroup>
+
+## What the custodian gains
+
+**KYA as an extension of KYC.** The agent's identity links back to the custodian's existing KYC/KYB-verified customer through Procta's owner verification. This creates a compliant delegation chain: the custodian knows the customer, the customer owns the agent, and Procta verifies the agent's authorization. Regulators can follow the chain from any agent action back to a verified identity.
+
+**Separation of trading and withdrawal authority.** Agents can be scoped to specific action types. A trading bot with `trading:spot` scope cannot initiate a withdrawal, even if it has valid API credentials. This is the most common risk mitigation for custodians — ensuring that agents authorized to trade are not also authorized to move funds off-platform.
+
+**Real-time limit enforcement.** Per-transaction and rolling daily limits are checked by Procta before the custodian processes the request. A withdrawal agent authorized for up to $25,000 per transaction will be denied if it requests $50,000 — without the custodian needing to build and maintain its own limit enforcement system.
+
+**Regulatory-ready audit trail.** Every verification decision is logged with the agent identity, owner identity, action, amount, timestamp, and result. This structured audit trail is designed for regulatory reporting. Custodians can export logs as CSV and present them to auditors or regulators as evidence that agent-initiated actions are subject to identity and authorization controls.
+
+**Instant revocation.** If a customer reports a compromised agent, the custodian or the customer can revoke the agent's Procta credentials immediately. All subsequent requests from that agent are denied. No API key rotation, no account lockout, no disruption to the customer's other agents or human access.
+
+## Regulatory context
+
+Custodial platforms operating under financial regulations — MiCA in the EU, state money transmitter licenses in the US, MAS licensing in Singapore — are increasingly expected to verify the identity and authorization of any automated system acting on behalf of a customer.
+
+Procta's KYA framework is designed to satisfy these requirements by providing:
+
+- A verifiable link between every agent and a KYC/KYB-verified owner
+- Scope-based authorization that limits what each agent can do
+- An immutable audit trail of every authorization decision
+- Credential revocation that takes effect immediately
+
+This doesn't replace the custodian's existing compliance program — it extends it to cover the growing population of autonomous agents accessing customer accounts.
+
+## Scopes for custodial platforms
+
+| Scope | Allows |
+|---|---|
+| `trading:spot` | Spot market orders |
+| `trading:futures` | Futures and perpetual contract orders |
+| `withdrawal:crypto` | Cryptocurrency withdrawals |
+| `withdrawal:fiat` | Fiat currency withdrawals |
+| `transfer:internal` | Internal transfers between sub-accounts |
+| `account:read` | Read-only access to balances and history |
+
+The most common configuration is `trading:spot` + `account:read` for trading bots, with `withdrawal:crypto` reserved for dedicated withdrawal agents with stricter limits. See the [Scopes reference](/scopes) for the full list of available scopes.
+
+## Next steps
+
+- [Register as a relying party](/guides/relying-party-guide) to start verifying agent-initiated actions
+- [Review the Owner Guide](/guides/owner-guide) to understand how customers register agents
+- [Explore the audit trail](/guides/audit-trails) for regulatory reporting and compliance

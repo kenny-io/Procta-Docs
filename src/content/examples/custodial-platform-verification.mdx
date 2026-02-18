@@ -1,0 +1,676 @@
+---
+title: "Custodial Platform Integration"
+description: "End-to-end tutorial: Build agent verification into your exchange, custodian, or prime broker with KYA-backed delegation, withdrawal scoping, and real-time limit enforcement."
+---
+
+This tutorial walks through integrating Procta into a custodial platform — exchanges, custodians, and prime brokers. By the end, every agent-initiated action on your platform will be verified against the agent's KYA identity, delegation chain, and real-time limits before execution.
+
+## What you'll build
+
+A verification layer that sits in front of your custodial operations. When an agent requests a withdrawal, trade, or account action, Procta confirms the agent is authorized by the account holder, has the right scopes, and is within approved limits — all before your system processes the request.
+
+**Architecture overview:**
+
+```
+Agent API Request → Auth Layer → Procta /verify → ALLOWED → Process Action
+                                                 → DENIED  → Reject + Compliance Log
+```
+
+## Prerequisites
+
+- A Procta relying party account and API key ([register here](/quickstart))
+- Node.js 18+ or Python 3.10+
+- Your existing custodial platform API
+
+## Register your custodial platform
+
+```bash
+curl -X POST https://api.procta.org/v1/relying-parties \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "AcmeCustody",
+    "contactEmail": "compliance@acmecustody.com",
+    "password": "your-secure-password"
+  }'
+```
+
+```bash
+export PROCTA_RP_KEY="prc_rp_xyz789..."
+```
+
+## Map custodial actions to Procta scopes
+
+Define a clear mapping between your platform's operations and Procta scopes. This ensures agents can only perform the specific actions their owners have authorized.
+
+| Custodial Action | Procta Scope | Risk Level |
+|---|---|---|
+| Spot trading | `trading:spot` | Medium |
+| Futures trading | `trading:futures` | High |
+| Crypto withdrawal | `withdrawal:crypto` | Critical |
+| Fiat withdrawal | `withdrawal:fiat` | Critical |
+| Internal transfer | `transfer:internal` | Medium |
+| Account info read | `account:read` | Low |
+
+<CodeGroup title="Scope mapping configuration">
+
+```ts
+// src/config/procta-scopes.ts
+
+export const SCOPE_MAP: Record<string, string> = {
+  'spot_order': 'trading:spot',
+  'futures_order': 'trading:futures',
+  'withdraw_crypto': 'withdrawal:crypto',
+  'withdraw_fiat': 'withdrawal:fiat',
+  'internal_transfer': 'transfer:internal',
+  'get_balance': 'account:read',
+  'get_positions': 'account:read',
+}
+
+export function mapActionToScope(platformAction: string): string | null {
+  return SCOPE_MAP[platformAction] ?? null
+}
+```
+
+```python
+# config/procta_scopes.py
+
+SCOPE_MAP = {
+    "spot_order": "trading:spot",
+    "futures_order": "trading:futures",
+    "withdraw_crypto": "withdrawal:crypto",
+    "withdraw_fiat": "withdrawal:fiat",
+    "internal_transfer": "transfer:internal",
+    "get_balance": "account:read",
+    "get_positions": "account:read",
+}
+
+
+def map_action_to_scope(platform_action: str) -> str | None:
+    return SCOPE_MAP.get(platform_action)
+```
+
+</CodeGroup>
+
+## Build the verification middleware
+
+Create middleware that intercepts every agent-initiated request and verifies it against Procta before processing.
+
+<CodeGroup title="Custodial verification middleware">
+
+```ts
+// src/middleware/agent-verify.ts
+import type { Request, Response, NextFunction } from 'express'
+import { mapActionToScope } from '../config/procta-scopes'
+
+interface VerifyResponse {
+  decision: 'ALLOWED' | 'DENIED'
+  reason?: string
+  verificationId?: string
+  agent?: {
+    kyaId: string
+    name: string
+    scope: string[]
+    owner: { id: string; verificationStatus: string; riskBand: string }
+  }
+}
+
+export async function verifyAgentAction(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const kyaId = req.headers['x-agent-kya-id'] as string
+  const { action, amount, asset } = req.body
+
+  // If no KYA ID, this is a human request — skip verification
+  if (!kyaId) {
+    return next()
+  }
+
+  // Map platform action to Procta scope
+  const scope = mapActionToScope(action)
+  if (!scope) {
+    return res.status(400).json({ error: `Unknown action: ${action}` })
+  }
+
+  try {
+    const response = await fetch('https://api.procta.org/v1/verify', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        kya_id: kyaId,
+        action: scope,
+        amount,
+        asset,
+      }),
+    })
+
+    const result: VerifyResponse = await response.json()
+
+    if (result.decision === 'ALLOWED') {
+      // Attach verified agent info for downstream use
+      req.verifiedAgent = result.agent
+      req.verificationId = result.verificationId
+
+      // Log for compliance
+      console.log(
+        `AGENT_VERIFIED: ${kyaId} | ${scope} | ${amount} ${asset} | ` +
+        `owner=${result.agent?.owner.verificationStatus} | ` +
+        `risk=${result.agent?.owner.riskBand}`
+      )
+
+      return next()
+    }
+
+    // Denied — log for compliance and reject
+    console.warn(
+      `AGENT_DENIED: ${kyaId} | ${scope} | ${amount} ${asset} | ${result.reason}`
+    )
+
+    return res.status(403).json({
+      error: 'AGENT_VERIFICATION_FAILED',
+      reason: result.reason,
+      verificationId: result.verificationId,
+    })
+  } catch (err) {
+    // Fail closed — critical for custodial platforms
+    console.error('VERIFICATION_ERROR:', err)
+    return res.status(503).json({
+      error: 'VERIFICATION_UNAVAILABLE',
+      reason: 'Agent verification service unreachable. Action blocked.',
+    })
+  }
+}
+```
+
+```python
+# middleware/agent_verify.py
+import os
+import requests
+from functools import wraps
+from flask import request, jsonify, g
+from config.procta_scopes import map_action_to_scope
+
+PROCTA_API_URL = "https://api.procta.org/v1/verify"
+PROCTA_RP_KEY = os.environ["PROCTA_RP_KEY"]
+
+
+def verify_agent_action(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        kya_id = request.headers.get("X-Agent-KYA-ID")
+
+        # No KYA ID = human request, skip verification
+        if not kya_id:
+            return f(*args, **kwargs)
+
+        data = request.get_json()
+        action = data.get("action")
+        scope = map_action_to_scope(action)
+
+        if not scope:
+            return jsonify({"error": f"Unknown action: {action}"}), 400
+
+        try:
+            resp = requests.post(
+                PROCTA_API_URL,
+                headers={"Authorization": f"Bearer {PROCTA_RP_KEY}"},
+                json={
+                    "kya_id": kya_id,
+                    "action": scope,
+                    "amount": data.get("amount"),
+                    "asset": data.get("asset"),
+                },
+                timeout=5,
+            )
+            result = resp.json()
+
+            if result["decision"] == "ALLOWED":
+                g.verified_agent = result.get("agent")
+                g.verification_id = result.get("verificationId")
+                return f(*args, **kwargs)
+
+            return jsonify({
+                "error": "AGENT_VERIFICATION_FAILED",
+                "reason": result.get("reason"),
+            }), 403
+
+        except requests.RequestException as e:
+            return jsonify({
+                "error": "VERIFICATION_UNAVAILABLE",
+                "reason": str(e),
+            }), 503
+
+    return decorated
+```
+
+</CodeGroup>
+
+<Note type="danger" title="Fail closed is mandatory">
+Custodial platforms **must** fail closed. If Procta is unreachable, deny the agent's request. Never process an unverified agent-initiated withdrawal or trade.
+</Note>
+
+## Wire into custodial endpoints
+
+Apply the middleware to all endpoints that agents can access.
+
+<CodeGroup title="Custodial API routes">
+
+```ts
+// src/routes/custodial.ts
+import express from 'express'
+import { verifyAgentAction } from '../middleware/agent-verify'
+
+const router = express.Router()
+
+// Apply agent verification to all routes
+router.use(verifyAgentAction)
+
+// Withdrawal endpoint
+router.post('/withdraw', async (req, res) => {
+  const { asset, amount, destination_address, network } = req.body
+
+  // If this is an agent request, log the delegation chain
+  if (req.verifiedAgent) {
+    const agent = req.verifiedAgent
+    console.log(
+      `Agent withdrawal: ${agent.kyaId} → owner ${agent.owner.id} → ` +
+      `${amount} ${asset} to ${destination_address}`
+    )
+  }
+
+  // Your existing withdrawal logic
+  const withdrawal = await processWithdrawal({
+    asset,
+    amount,
+    destinationAddress: destination_address,
+    network,
+    initiatedBy: req.verifiedAgent?.kyaId ?? req.user.id,
+    verificationId: req.verificationId,
+  })
+
+  res.json({ withdrawal })
+})
+
+// Trading endpoint
+router.post('/orders', async (req, res) => {
+  const { pair, side, amount, order_type } = req.body
+
+  const order = await placeOrder({
+    pair,
+    side,
+    amount,
+    orderType: order_type,
+    initiatedBy: req.verifiedAgent?.kyaId ?? req.user.id,
+    verificationId: req.verificationId,
+  })
+
+  res.json({ order })
+})
+
+// Internal transfer endpoint
+router.post('/transfers/internal', async (req, res) => {
+  const { from_account, to_account, amount, asset } = req.body
+
+  const transfer = await processInternalTransfer({
+    fromAccount: from_account,
+    toAccount: to_account,
+    amount,
+    asset,
+    initiatedBy: req.verifiedAgent?.kyaId ?? req.user.id,
+    verificationId: req.verificationId,
+  })
+
+  res.json({ transfer })
+})
+
+export default router
+```
+
+```python
+# routes/custodial.py
+from flask import Blueprint, request, jsonify, g
+from middleware.agent_verify import verify_agent_action
+
+custodial = Blueprint("custodial", __name__)
+
+
+@custodial.route("/withdraw", methods=["POST"])
+@verify_agent_action
+def withdraw():
+    data = request.get_json()
+    agent = getattr(g, "verified_agent", None)
+
+    withdrawal = process_withdrawal(
+        asset=data["asset"],
+        amount=data["amount"],
+        destination_address=data["destination_address"],
+        network=data["network"],
+        initiated_by=agent["kyaId"] if agent else g.user_id,
+        verification_id=getattr(g, "verification_id", None),
+    )
+
+    return jsonify({"withdrawal": withdrawal})
+
+
+@custodial.route("/orders", methods=["POST"])
+@verify_agent_action
+def place_order():
+    data = request.get_json()
+    agent = getattr(g, "verified_agent", None)
+
+    order = create_order(
+        pair=data["pair"],
+        side=data["side"],
+        amount=data["amount"],
+        order_type=data["order_type"],
+        initiated_by=agent["kyaId"] if agent else g.user_id,
+        verification_id=getattr(g, "verification_id", None),
+    )
+
+    return jsonify({"order": order})
+
+
+@custodial.route("/transfers/internal", methods=["POST"])
+@verify_agent_action
+def internal_transfer():
+    data = request.get_json()
+    agent = getattr(g, "verified_agent", None)
+
+    transfer = process_internal_transfer(
+        from_account=data["from_account"],
+        to_account=data["to_account"],
+        amount=data["amount"],
+        asset=data["asset"],
+        initiated_by=agent["kyaId"] if agent else g.user_id,
+        verification_id=getattr(g, "verification_id", None),
+    )
+
+    return jsonify({"transfer": transfer})
+```
+
+</CodeGroup>
+
+## Map KYA to existing KYC records
+
+Link agent identities to your existing customer KYC/KYB records to maintain a compliant delegation chain. This is critical for regulatory compliance.
+
+<CodeGroup title="KYA-KYC linkage">
+
+```ts
+// src/compliance/kya-kyc-link.ts
+
+interface KYAKYCLink {
+  kyaId: string
+  customerId: string // Your platform's customer ID
+  kycStatus: string
+  linkedAt: Date
+}
+
+export async function linkKYAToCustomer(
+  kyaId: string,
+  customerId: string
+): Promise<KYAKYCLink> {
+  // 1. Look up the agent to get owner info
+  const response = await fetch('https://api.procta.org/v1/agents/lookup', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ kya_id: kyaId }),
+  })
+
+  const result = await response.json()
+
+  if (!result.verified) {
+    throw new Error(`Agent ${kyaId} is not verified`)
+  }
+
+  // 2. Verify the owner's KYC status matches your records
+  const customer = await getCustomer(customerId)
+
+  if (result.owner.verificationStatus !== 'VERIFIED') {
+    throw new Error('Agent owner is not KYC-verified on Procta')
+  }
+
+  // 3. Store the linkage in your compliance database
+  const link: KYAKYCLink = {
+    kyaId,
+    customerId,
+    kycStatus: customer.kycStatus,
+    linkedAt: new Date(),
+  }
+
+  await saveKYAKYCLink(link)
+
+  console.log(
+    `KYA-KYC linked: ${kyaId} → customer ${customerId} ` +
+    `(owner risk: ${result.owner.riskBand})`
+  )
+
+  return link
+}
+
+// Verify linkage on every agent request
+export async function verifyKYAKYCLink(
+  kyaId: string,
+  accountCustomerId: string
+): Promise<boolean> {
+  const link = await getKYAKYCLink(kyaId)
+
+  if (!link) {
+    return false // No linkage exists
+  }
+
+  return link.customerId === accountCustomerId
+}
+```
+
+```python
+# compliance/kya_kyc_link.py
+import os
+import requests
+from datetime import datetime
+
+PROCTA_RP_KEY = os.environ["PROCTA_RP_KEY"]
+
+
+def link_kya_to_customer(kya_id: str, customer_id: str) -> dict:
+    # 1. Look up the agent
+    resp = requests.post(
+        "https://api.procta.org/v1/agents/lookup",
+        headers={"Authorization": f"Bearer {PROCTA_RP_KEY}"},
+        json={"kya_id": kya_id},
+        timeout=5,
+    )
+    result = resp.json()
+
+    if not result.get("verified"):
+        raise ValueError(f"Agent {kya_id} is not verified")
+
+    if result["owner"]["verificationStatus"] != "VERIFIED":
+        raise ValueError("Agent owner is not KYC-verified on Procta")
+
+    # 2. Store the linkage
+    link = {
+        "kya_id": kya_id,
+        "customer_id": customer_id,
+        "kyc_status": get_customer(customer_id)["kyc_status"],
+        "linked_at": datetime.utcnow().isoformat(),
+    }
+
+    save_kya_kyc_link(link)
+    return link
+
+
+def verify_kya_kyc_link(kya_id: str, account_customer_id: str) -> bool:
+    link = get_kya_kyc_link(kya_id)
+    if not link:
+        return False
+    return link["customer_id"] == account_customer_id
+```
+
+</CodeGroup>
+
+<Note type="warning" title="Regulatory note">
+Custodial platforms operating under financial regulations (MiCA, state MTLs, etc.) may be required to verify the identity and authorization of any automated system acting on behalf of a customer. The KYA-KYC linkage creates the compliant delegation chain regulators expect.
+</Note>
+
+## Handle real-time agent status changes
+
+Subscribe to Procta webhooks to react immediately when an agent is revoked, suspended, or has its scopes changed.
+
+<CodeGroup title="Webhook handler for custodial platforms">
+
+```ts
+// src/routes/webhooks.ts
+import express from 'express'
+
+const router = express.Router()
+
+router.post('/procta/webhooks', async (req, res) => {
+  const event = req.body
+
+  switch (event.type) {
+    case 'agent.revoked':
+      // Immediately freeze all pending actions for this agent
+      await freezeAgentActions(event.data.kyaId)
+      // Cancel open orders
+      await cancelOpenOrders({ initiatedBy: event.data.kyaId })
+      // Alert compliance team
+      await alertCompliance({
+        type: 'AGENT_REVOKED',
+        kyaId: event.data.kyaId,
+        timestamp: event.timestamp,
+      })
+      break
+
+    case 'agent.suspended':
+      await freezeAgentActions(event.data.kyaId)
+      break
+
+    case 'agent.scope_updated':
+      // Invalidate cached scopes
+      await invalidateScopeCache(event.data.kyaId)
+      break
+
+    case 'agent.limits_updated':
+      await invalidateLimitsCache(event.data.kyaId)
+      break
+
+    case 'owner.verification_changed':
+      // If owner KYC lapses, freeze all their agents
+      if (event.data.newStatus !== 'VERIFIED') {
+        await freezeOwnerAgents(event.data.ownerId)
+      }
+      break
+  }
+
+  res.status(200).json({ received: true })
+})
+
+export default router
+```
+
+```python
+# routes/webhooks.py
+from flask import Blueprint, request, jsonify
+
+webhooks = Blueprint("webhooks", __name__)
+
+
+@webhooks.route("/procta/webhooks", methods=["POST"])
+def handle_webhook():
+    event = request.get_json()
+
+    if event["type"] == "agent.revoked":
+        freeze_agent_actions(event["data"]["kyaId"])
+        cancel_open_orders(initiated_by=event["data"]["kyaId"])
+        alert_compliance("AGENT_REVOKED", event["data"]["kyaId"])
+
+    elif event["type"] == "agent.suspended":
+        freeze_agent_actions(event["data"]["kyaId"])
+
+    elif event["type"] == "agent.scope_updated":
+        invalidate_scope_cache(event["data"]["kyaId"])
+
+    elif event["type"] == "owner.verification_changed":
+        if event["data"]["newStatus"] != "VERIFIED":
+            freeze_owner_agents(event["data"]["ownerId"])
+
+    return jsonify({"received": True}), 200
+```
+
+</CodeGroup>
+
+## Test the full integration
+
+```bash
+# Test an agent-initiated withdrawal
+curl -X POST http://localhost:3000/withdraw \
+  -H "Content-Type: application/json" \
+  -H "X-Agent-KYA-ID: kya_01kcustody9x3mfq72a0" \
+  -d '{
+    "action": "withdraw_crypto",
+    "amount": "5000.00",
+    "asset": "USDC",
+    "destination_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+    "network": "ethereum"
+  }'
+
+# Test an agent-initiated trade
+curl -X POST http://localhost:3000/orders \
+  -H "Content-Type: application/json" \
+  -H "X-Agent-KYA-ID: kya_01kcustody9x3mfq72a0" \
+  -d '{
+    "action": "spot_order",
+    "pair": "BTC/USDC",
+    "side": "buy",
+    "amount": "10000.00",
+    "asset": "USDC",
+    "order_type": "market"
+  }'
+```
+
+**Expected behavior:**
+
+| Scenario | Result | HTTP Status |
+|---|---|---|
+| Agent authorized for `withdrawal:crypto`, within limits | Withdrawal processed | `200` |
+| Agent has `trading:spot` but not `withdrawal:crypto` | `AGENT_VERIFICATION_FAILED` | `403` |
+| Amount exceeds per-transaction limit | `AGENT_VERIFICATION_FAILED` | `403` |
+| Agent's owner KYC has lapsed | `AGENT_VERIFICATION_FAILED` | `403` |
+| No `X-Agent-KYA-ID` header (human request) | Normal processing | `200` |
+| Procta unreachable | `VERIFICATION_UNAVAILABLE` | `503` |
+
+## Generate compliance reports
+
+Pull verification logs for regulatory reporting:
+
+```bash
+# All agent-initiated withdrawals in January
+curl https://api.procta.org/v1/audit/logs \
+  -H "Authorization: Bearer ${PROCTA_RP_KEY}" \
+  -G -d "action=withdrawal:crypto,withdrawal:fiat" \
+     -d "from=2025-01-01T00:00:00Z" \
+     -d "to=2025-01-31T23:59:59Z" \
+     -d "format=csv"
+
+# All denied agent actions (for suspicious activity reporting)
+curl https://api.procta.org/v1/audit/logs \
+  -H "Authorization: Bearer ${PROCTA_RP_KEY}" \
+  -G -d "decision=DENIED" \
+     -d "from=2025-01-01T00:00:00Z" \
+     -d "format=csv"
+```
+
+## What's next
+
+- **[Custodial Platforms use case](/use-cases/custodial-platforms)** — Conceptual overview of custodial verification
+- **[Owner Guide](/guides/owner-guide)** — How your customers register and manage their agents
+- **[Audit Trails](/guides/audit-trails)** — Query and export verification history
+- **[Webhook setup](/webhooks)** — Configure webhook endpoints and event types

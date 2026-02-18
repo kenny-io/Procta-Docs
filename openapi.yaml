@@ -49,6 +49,8 @@ tags:
     description: Real-time agent action verification
   - name: Audit
     description: Audit trail and event logs
+  - name: Scopes
+    description: Predefined scope registry
   - name: Webhooks
     description: External service webhook handlers
 
@@ -279,6 +281,106 @@ paths:
                   database:
                     type: string
                     example: disconnected
+
+  # ─── Scopes ──────────────────────────────────────────────
+  /v1/scopes:
+    get:
+      tags: [Scopes]
+      summary: List all scopes
+      description: Returns all predefined scopes grouped by category. No authentication required.
+      operationId: listScopes
+      responses:
+        "200":
+          description: All scopes grouped by category
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalScopes:
+                    type: integer
+                    example: 62
+                  totalCategories:
+                    type: integer
+                    example: 16
+                  categories:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          example: trading
+                        name:
+                          type: string
+                          example: Trading
+                        description:
+                          type: string
+                        wildcard:
+                          type: string
+                          example: "trading:*"
+                        scopes:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              scope:
+                                type: string
+                                example: "trading:spot"
+                              name:
+                                type: string
+                                example: Spot Trading
+                              description:
+                                type: string
+                                example: Place and manage spot market orders and limit orders
+
+  /v1/scopes/{category}:
+    get:
+      tags: [Scopes]
+      summary: List scopes by category
+      description: Returns all scopes for a specific category.
+      operationId: listScopesByCategory
+      parameters:
+        - name: category
+          in: path
+          required: true
+          schema:
+            type: string
+            example: trading
+          description: "Category ID (e.g. trading, withdrawal, defi, wallet, payments)"
+      responses:
+        "200":
+          description: Scopes for the category
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  wildcard:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scope:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+        "404":
+          description: Category not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   # ─── Auth ─────────────────────────────────────────────────
   /v1/auth/me:

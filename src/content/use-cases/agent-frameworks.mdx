@@ -1,0 +1,114 @@
+---
+title: Agent Frameworks
+description: How agent orchestration frameworks use Procta to enforce boundaries, issue credentials at deploy time, and maintain per-agent identity across multi-agent systems.
+---
+
+Agent frameworks let developers build, deploy, and orchestrate autonomous agents — from single-purpose task runners to multi-agent systems that coordinate across protocols, APIs, and blockchains. Frameworks like these are the foundation of the emerging agent economy, and they're growing fast.
+
+The problem is that most frameworks focus entirely on capability. They make it easy to give an agent access to tools, contracts, and external services — but provide no built-in way to enforce what an agent *should* be allowed to do, or to prove who deployed it. Capability without compliance is a liability.
+
+## What goes wrong without identity
+
+When a developer deploys an agent through a framework, the agent typically inherits whatever credentials and permissions the developer provides — API keys, private keys, service tokens. There's no separation between identity and access, and no way for external services to verify the agent independently.
+
+This leads to problems at every level:
+
+- An agent calls a contract it was never intended to interact with, because nothing enforces scope boundaries
+- A multi-agent swarm shares a single set of credentials, making it impossible to attribute actions to individual agents
+- A platform receiving requests from framework-deployed agents has no way to verify who deployed them or what they're authorized to do
+- When something goes wrong, there's no audit trail linking the agent's actions back to a verified owner
+
+Frameworks need a trust layer that works at the agent level — not the developer level, not the API key level.
+
+## How Procta integrates with agent frameworks
+
+Procta integrates as a **pre-execution middleware** in the framework's agent pipeline. Before any agent performs an external action — calling an API, signing a transaction, interacting with a contract — the framework checks with Procta.
+
+The integration has two parts:
+
+### At deploy time
+
+When a developer deploys an agent through the framework, the framework registers the agent with Procta via the agent registration API. The developer specifies the agent's scopes (e.g., `defi:swap`, `trading:spot`) and transaction limits. Procta returns a unique `kya_` identifier and a W3C-compatible verifiable credential.
+
+This happens once, at deploy time. The credential travels with the agent.
+
+### At execution time
+
+Before the agent performs any external action, the framework calls Procta's `/verify` endpoint. Procta checks the agent's identity, scope, and limits, and returns `ALLOWED` or `DENIED`. The framework only proceeds if the action is allowed.
+
+<CodeGroup title="Framework pre-execution hook">
+
+```ts
+// Middleware that runs before every agent action
+async function proctaVerify(agent: Agent, action: string, amount?: string) {
+  const response = await fetch('https://api.procta.org/v1/verify', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      kya_id: agent.kyaId,
+      action,
+      amount: amount ?? '0',
+      asset: 'USDC',
+    }),
+  })
+  const result = await response.json()
+
+  if (result.decision !== 'ALLOWED') {
+    throw new Error(`Agent ${agent.kyaId} denied: ${result.reason}`)
+  }
+
+  return result
+}
+```
+
+```python
+import os, requests
+
+def procta_verify(agent, action, amount="0"):
+    """Middleware that runs before every agent action."""
+    response = requests.post(
+        "https://api.procta.org/v1/verify",
+        headers={"Authorization": f"Bearer {os.environ['PROCTA_RP_KEY']}"},
+        json={
+            "kya_id": agent.kya_id,
+            "action": action,
+            "amount": amount,
+            "asset": "USDC",
+        },
+    )
+    result = response.json()
+
+    if result["decision"] != "ALLOWED":
+        raise PermissionError(f"Agent {agent.kya_id} denied: {result['reason']}")
+
+    return result
+```
+
+</CodeGroup>
+
+This pattern works regardless of what the agent is doing — calling a REST API, submitting a blockchain transaction, or invoking another agent. The verification is the same.
+
+## What the framework gains
+
+**Per-agent identity.** Every agent in a swarm has its own `kya_` identifier, scopes, and limits. No shared credentials, no ambiguous attribution. If agent A performs an unauthorized action, the framework knows exactly which agent it was and who deployed it.
+
+**Scope enforcement at the framework level.** The framework doesn't need to build its own authorization system. Procta handles scope checks, limit enforcement, and owner verification — the framework just calls `/verify` and respects the decision.
+
+**Verifiable credentials.** Each agent carries a W3C-compatible JWT credential issued by Procta. External services can validate this credential independently, without calling Procta in real-time. This is especially useful for cross-framework agent interactions.
+
+**Audit trail for every action.** Every verification decision is logged. Framework operators can pull logs per agent, per owner, or per action type — useful for debugging, compliance, and incident response.
+
+## Multi-agent considerations
+
+In multi-agent systems, each agent should be registered separately with its own scopes and limits. A coordinator agent might have `agent:orchestrate` scope, while worker agents have narrower scopes like `defi:swap` or `data:read`. This prevents a compromised worker from escalating its own permissions.
+
+Procta does not enforce inter-agent communication rules — that's the framework's responsibility. But it does ensure that every *external* action by any agent in the system is verified against that agent's specific authorization.
+
+## Next steps
+
+- [Register as a relying party](/guides/relying-party-guide) to integrate Procta into your framework
+- [Review the Credentials documentation](/credentials) to understand how verifiable credentials work
+- [Explore the Quickstart](/quickstart) for a 5-minute integration walkthrough

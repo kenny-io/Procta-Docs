@@ -1,0 +1,550 @@
+---
+title: Scopes
+description: Complete reference for all 131 predefined Procta scopes across 24 categories — the permissions that define what an agent is allowed to do.
+---
+
+Scopes define what actions an agent is authorized to perform. Every agent is registered with one or more scopes, and every verification request checks the requested action against the agent's scopes.
+
+Procta uses a predefined scope registry — similar to how GitHub defines OAuth scopes. Scopes follow the format `category:action` and are organized into 24 categories covering the full range of crypto and DeFi agent use cases. You can also use category wildcards (`category:*`) to grant all actions within a category.
+
+## How scopes work
+
+1. **At registration** — The owner assigns scopes to the agent when registering it via `POST /v1/owners/:ownerId/agents`
+2. **At verification** — The relying party sends the `action` field in the verification request (`POST /v1/verify`), and Procta checks it against the agent's scopes
+3. **At update** — Scopes can be modified via `PATCH /v1/agents/:id`, and a new credential should be reissued to reflect the change
+
+Scopes are enforced server-side. An agent cannot expand its own scopes — only the owner can modify them.
+
+## Scope format
+
+```
+category:action
+```
+
+- **`trading:spot`** — Allows spot trading
+- **`trading:*`** — Allows all trading actions
+- **`*`** — Allows everything (use with extreme caution)
+
+## Listing available scopes
+
+Use the public API endpoint to list all available scopes:
+
+```bash
+curl https://api.procta.org/v1/scopes
+```
+
+Or filter by category:
+
+```bash
+curl https://api.procta.org/v1/scopes/trading
+```
+
+---
+
+## Trading
+
+Scopes for spot, futures, margin, options, algorithmic, and automated trading strategies.
+
+| Scope | Description |
+|---|---|
+| `trading:spot` | Place and manage spot market orders and limit orders |
+| `trading:futures` | Place and manage futures and perpetual contract orders |
+| `trading:margin` | Place and manage margin trades and leveraged positions |
+| `trading:options` | Place and manage options contracts |
+| `trading:convert` | Convert between assets at market rate without placing an order book order |
+| `trading:algo` | Place algorithmic orders such as TWAP, VWAP, iceberg, and smart order routing |
+| `trading:copy` | Follow and automatically replicate trades from other traders or strategies |
+| `trading:grid` | Create and manage grid trading bots with defined price ranges |
+| `trading:dca` | Set up and manage recurring buy/sell orders at fixed intervals |
+| `trading:cancel` | Cancel open orders across all instrument types |
+| `trading:modify` | Modify price, size, or parameters of existing open orders |
+| `trading:read` | Read-only access to open orders, trade history, positions, and P&L |
+
+**Wildcard:** `trading:*`
+
+**Common combinations:**
+- Spot trading bot: `trading:spot` + `trading:cancel` + `trading:modify` + `trading:read`
+- Grid/DCA bot: `trading:grid` + `trading:dca` + `trading:cancel` + `trading:read`
+- Full trading agent: `trading:*`
+
+---
+
+## Exchange
+
+Scopes for CEX-specific features beyond trading: earn products, CeFi lending, sub-accounts, and fiat on/off ramp.
+
+| Scope | Description |
+|---|---|
+| `exchange:earn` | Subscribe to and redeem flexible or locked savings, staking, and earn products |
+| `exchange:lend` | Lend assets on centralized lending markets for interest |
+| `exchange:borrow` | Borrow assets against collateral on centralized lending markets |
+| `exchange:sub-account` | Create, configure, and manage sub-accounts and their permissions |
+| `exchange:convert` | Buy crypto with fiat or sell crypto to fiat via exchange on-ramp |
+| `exchange:read` | Read-only access to exchange account data, earn positions, and lending history |
+
+**Wildcard:** `exchange:*`
+
+**Common combinations:**
+- Earn optimizer: `exchange:earn` + `exchange:read`
+- CeFi lending bot: `exchange:lend` + `exchange:borrow` + `exchange:read`
+
+---
+
+## Withdrawal
+
+Scopes for withdrawing assets from platforms.
+
+| Scope | Description |
+|---|---|
+| `withdrawal:crypto` | Withdraw cryptocurrency to external addresses |
+| `withdrawal:fiat` | Withdraw fiat currency to linked bank accounts |
+| `withdrawal:internal` | Withdraw to whitelisted internal addresses only |
+
+**Wildcard:** `withdrawal:*`
+
+<Note type="warning" title="High-risk scopes">
+Withdrawal scopes should be assigned with strict per-transaction and daily limits. Consider using `withdrawal:internal` instead of `withdrawal:crypto` when possible to restrict destinations to whitelisted addresses.
+</Note>
+
+---
+
+## Transfer
+
+Scopes for moving assets between accounts and addresses.
+
+| Scope | Description |
+|---|---|
+| `transfer:internal` | Transfer funds between sub-accounts or wallets within the same platform |
+| `transfer:external` | Transfer funds to external accounts or addresses |
+| `transfer:peer` | Transfer funds to other users on the same platform |
+
+**Wildcard:** `transfer:*`
+
+---
+
+## Account
+
+Scopes for account data access and management.
+
+| Scope | Description |
+|---|---|
+| `account:read` | Read-only access to account balances, history, and profile |
+| `account:write` | Update account settings and preferences |
+
+**Wildcard:** `account:*`
+
+---
+
+## Wallet
+
+Scopes for transaction signing, wallet creation, and key operations. Used by wallet-as-a-service, MPC key management, and smart account platforms.
+
+| Scope | Description |
+|---|---|
+| `wallet:sign-transfer` | Sign asset transfer transactions (native token and ERC-20/SPL) |
+| `wallet:sign-swap` | Sign token swap transactions on DEXs or aggregators |
+| `wallet:sign-approve` | Sign token approval (allowance) transactions for spender contracts |
+| `wallet:sign-contract` | Sign arbitrary smart contract interactions not covered by specific scopes |
+| `wallet:sign-message` | Sign arbitrary messages (EIP-191 personal_sign) |
+| `wallet:sign-typed-data` | Sign EIP-712 typed structured data (permits, orders, attestations) |
+| `wallet:deploy-contract` | Deploy new smart contracts to the blockchain |
+| `wallet:create` | Create new wallet addresses or accounts within the wallet provider |
+| `wallet:read` | Read-only access to wallet balances, addresses, nonces, and transaction history |
+
+**Wildcard:** `wallet:*`
+
+<Note type="warning" title="Signing scopes">
+`wallet:sign-contract` is the broadest signing scope — it allows signing any contract interaction. Prefer more specific scopes like `wallet:sign-transfer` or `wallet:sign-swap` when possible. `wallet:sign-typed-data` is required for EIP-712 permit signatures used by many DeFi protocols.
+</Note>
+
+---
+
+## Token
+
+Scopes for fungible token operations (ERC-20, SPL). Distinct from wallet signing — these represent the *intent* of the token action.
+
+| Scope | Description |
+|---|---|
+| `token:transfer` | Transfer fungible tokens (ERC-20, SPL) to another address |
+| `token:approve` | Set or revoke token spending allowances for contracts or addresses |
+| `token:mint` | Mint new tokens (requires mint authority on the token contract) |
+| `token:burn` | Permanently burn tokens, reducing total supply |
+| `token:wrap` | Wrap native tokens into wrapped equivalents (e.g. ETH → WETH, SOL → wSOL) |
+| `token:unwrap` | Unwrap wrapped tokens back to native (e.g. WETH → ETH) |
+| `token:read` | Read-only access to token balances, allowances, and metadata |
+
+**Wildcard:** `token:*`
+
+---
+
+## DeFi
+
+Scopes for core DeFi interactions: DEX swaps, liquidity provision, deposits, and flash loans.
+
+| Scope | Description |
+|---|---|
+| `defi:swap` | Execute token swaps on decentralized exchanges and aggregators |
+| `defi:limit-order` | Place and manage on-chain limit orders on DEX protocols |
+| `defi:provide-liquidity` | Add liquidity to AMM pools, concentrated liquidity positions, or liquidity protocols |
+| `defi:remove-liquidity` | Remove liquidity from AMM pools or liquidity protocols |
+| `defi:deposit` | Deposit funds into lending pools, vaults, or protocol contracts |
+| `defi:withdraw` | Withdraw funds from DeFi protocol contracts |
+| `defi:claim` | Claim rewards, incentives, airdrops, or yield from DeFi protocols |
+| `defi:flash-loan` | Execute flash loan transactions (borrow and repay within a single transaction) |
+| `defi:read` | Read-only access to DeFi positions, pool data, and protocol state |
+
+**Wildcard:** `defi:*`
+
+**Common combinations:**
+- DEX trading bot: `defi:swap` + `defi:limit-order` + `defi:read`
+- LP manager: `defi:provide-liquidity` + `defi:remove-liquidity` + `defi:claim` + `defi:read`
+- Flash loan bot: `defi:flash-loan` + `defi:swap`
+
+---
+
+## Lending
+
+Scopes for DeFi lending, borrowing, collateral management, and liquidation. Covers protocols like Aave, Compound, Morpho, Spark, etc.
+
+| Scope | Description |
+|---|---|
+| `lending:supply` | Supply assets to lending protocols as a lender |
+| `lending:withdraw-supply` | Withdraw previously supplied assets from lending protocols |
+| `lending:borrow` | Borrow assets against deposited collateral |
+| `lending:repay` | Repay borrowed assets to lending protocols |
+| `lending:collateral-deposit` | Deposit collateral to secure a borrowing position |
+| `lending:collateral-withdraw` | Withdraw collateral from a borrowing position (if health factor allows) |
+| `lending:liquidate` | Trigger liquidation of undercollateralized positions |
+| `lending:leverage` | Execute leverage looping strategies (deposit, borrow, re-deposit cycles) |
+| `lending:read` | Read-only access to lending positions, rates, health factors, and liquidation thresholds |
+
+**Wildcard:** `lending:*`
+
+**Common combinations:**
+- Lending optimizer: `lending:supply` + `lending:withdraw-supply` + `lending:read`
+- Leverage bot: `lending:collateral-deposit` + `lending:borrow` + `lending:leverage` + `lending:repay` + `lending:read`
+- Liquidation bot: `lending:liquidate` + `lending:read`
+
+---
+
+## Yield
+
+Scopes for yield vaults, farming, harvesting, compounding, and restaking. Covers protocols like Yearn, Beefy, Convex, EigenLayer, etc.
+
+| Scope | Description |
+|---|---|
+| `yield:vault-deposit` | Deposit assets into yield vaults and auto-compounding strategies |
+| `yield:vault-withdraw` | Withdraw assets from yield vaults and strategies |
+| `yield:farm` | Stake LP tokens or assets in yield farming contracts for reward emissions |
+| `yield:harvest` | Harvest pending farming rewards without withdrawing the principal |
+| `yield:compound` | Compound harvested rewards back into the farming or vault position |
+| `yield:restake` | Restake assets into liquid restaking protocols (EigenLayer, Symbiotic, Karak, etc.) |
+| `yield:read` | Read-only access to vault positions, farming rewards, APY, and strategy performance |
+
+**Wildcard:** `yield:*`
+
+**Common combinations:**
+- Yield optimizer: `yield:vault-deposit` + `yield:vault-withdraw` + `yield:compound` + `yield:read`
+- Farm harvester: `yield:harvest` + `yield:compound` + `yield:read`
+- Restaking agent: `yield:restake` + `yield:read`
+
+---
+
+## Bridge
+
+Scopes for cross-chain asset transfers and swaps.
+
+| Scope | Description |
+|---|---|
+| `bridge:transfer` | Transfer assets across blockchain networks via bridge protocols |
+| `bridge:swap` | Swap assets across chains in a single operation (bridge + swap) |
+| `bridge:read` | Read-only access to bridge transfer status, routes, and history |
+
+**Wildcard:** `bridge:*`
+
+---
+
+## Staking
+
+Scopes for PoS staking, delegation, liquid staking, and validator operations.
+
+| Scope | Description |
+|---|---|
+| `staking:stake` | Stake or delegate tokens to validators or staking protocols |
+| `staking:unstake` | Unstake or undelegate tokens (may be subject to unbonding period) |
+| `staking:claim-rewards` | Claim staking rewards and validator commissions |
+| `staking:redelegate` | Move staked tokens between validators without full unstaking |
+| `staking:liquid-stake` | Stake via liquid staking protocols and receive LSTs (stETH, rETH, mSOL, etc.) |
+| `staking:liquid-unstake` | Redeem liquid staking tokens back to the underlying asset |
+| `staking:validate` | Register, configure, and manage validator nodes |
+| `staking:read` | Read-only access to staking positions, rewards, validators, and unbonding status |
+
+**Wildcard:** `staking:*`
+
+**Common combinations:**
+- Delegator bot: `staking:stake` + `staking:unstake` + `staking:redelegate` + `staking:claim-rewards` + `staking:read`
+- Liquid staking agent: `staking:liquid-stake` + `staking:liquid-unstake` + `staking:read`
+
+---
+
+## NFT
+
+Scopes for NFT minting, marketplace trading, and collection management.
+
+| Scope | Description |
+|---|---|
+| `nft:mint` | Mint new NFTs or collections |
+| `nft:transfer` | Transfer NFTs to other addresses |
+| `nft:buy` | Purchase NFTs from marketplace listings or accept offers |
+| `nft:list` | List NFTs for sale on marketplaces |
+| `nft:delist` | Remove NFT listings from marketplaces |
+| `nft:bid` | Place bids on NFT auctions or collection offers |
+| `nft:burn` | Permanently destroy NFTs |
+| `nft:update-metadata` | Update metadata, traits, or media for mutable NFTs |
+| `nft:read` | Read-only access to NFT holdings, metadata, listings, and collection info |
+
+**Wildcard:** `nft:*`
+
+**Common combinations:**
+- NFT trading bot: `nft:buy` + `nft:list` + `nft:bid` + `nft:read`
+- Minting agent: `nft:mint` + `nft:list` + `nft:read`
+
+---
+
+## Governance
+
+Scopes for DAO governance: voting, proposals, delegation, and execution.
+
+| Scope | Description |
+|---|---|
+| `governance:vote` | Cast votes on governance proposals (on-chain or Snapshot) |
+| `governance:propose` | Submit new governance proposals |
+| `governance:delegate` | Delegate voting power to another address or agent |
+| `governance:execute` | Execute governance proposals that have passed voting and timelock |
+| `governance:read` | Read-only access to proposals, votes, delegation state, and governance parameters |
+
+**Wildcard:** `governance:*`
+
+---
+
+## Treasury
+
+Scopes for DAO and organizational treasury operations including multisig.
+
+| Scope | Description |
+|---|---|
+| `treasury:execute` | Execute governance-approved treasury transactions (multisig or timelock) |
+| `treasury:propose` | Submit treasury transaction proposals for governance or multisig approval |
+| `treasury:sign` | Add a signature to a multisig treasury transaction (Safe, Squads, etc.) |
+| `treasury:read` | Read-only access to treasury balances, pending transactions, and history |
+
+**Wildcard:** `treasury:*`
+
+---
+
+## Payments
+
+Scopes for crypto payment processing and token streaming.
+
+| Scope | Description |
+|---|---|
+| `payments:send` | Send payments to merchants, users, or external recipients |
+| `payments:receive` | Accept and process incoming payments |
+| `payments:subscribe` | Create, update, and cancel recurring payment subscriptions |
+| `payments:refund` | Issue refunds for previously completed payments |
+| `payments:stream` | Create, modify, or cancel token streaming payments (Sablier, Superfluid, etc.) |
+| `payments:read` | Read-only access to payment history, invoices, and stream status |
+
+**Wildcard:** `payments:*`
+
+---
+
+## Agent
+
+Scopes for multi-agent orchestration, lifecycle, and inter-agent operations.
+
+| Scope | Description |
+|---|---|
+| `agent:orchestrate` | Coordinate and delegate tasks to other agents in a multi-agent system |
+| `agent:spawn` | Create and deploy sub-agents on behalf of the owner |
+| `agent:communicate` | Send and receive messages to/from other agents |
+| `agent:execute` | Execute delegated tasks received from an orchestrator agent |
+| `agent:read` | Read-only access to agent status, capabilities, and task history |
+
+**Wildcard:** `agent:*`
+
+<Note type="info" title="Multi-agent systems">
+In multi-agent systems, the coordinator agent should have `agent:orchestrate` while worker agents have `agent:execute` plus narrower, task-specific scopes. This prevents a compromised worker from escalating its permissions.
+</Note>
+
+---
+
+## Automation
+
+Scopes for keeper bots, scheduled tasks, and conditional execution.
+
+| Scope | Description |
+|---|---|
+| `automation:execute` | Execute automated tasks such as keeper jobs, liquidation calls, or rebalancing |
+| `automation:schedule` | Create, modify, or cancel scheduled or recurring automated tasks |
+| `automation:trigger` | Trigger conditional execution based on price, time, or on-chain events |
+| `automation:read` | Read-only access to automation task status, history, and execution logs |
+
+**Wildcard:** `automation:*`
+
+**Common combinations:**
+- Keeper bot: `automation:execute` + `automation:trigger` + `automation:read`
+- Scheduler agent: `automation:schedule` + `automation:read`
+
+---
+
+## MEV
+
+Scopes for Maximal Extractable Value strategies: bundle submission, arbitrage, and backrunning.
+
+| Scope | Description |
+|---|---|
+| `mev:submit-bundle` | Submit transaction bundles to block builders or MEV relays (Flashbots, Jito, etc.) |
+| `mev:arbitrage` | Execute cross-DEX or cross-venue arbitrage transactions |
+| `mev:backrun` | Submit backrun transactions following target transactions |
+| `mev:sandwich` | Execute sandwich trading strategies (frontrun + backrun) |
+| `mev:read` | Read-only access to mempool data, bundle status, and MEV opportunities |
+
+**Wildcard:** `mev:*`
+
+<Note type="warning" title="MEV scopes">
+MEV scopes represent high-risk, high-frequency strategies. Platforms should enforce strict rate limits and monitoring on agents with these scopes. `mev:sandwich` is particularly sensitive and may be restricted by some platforms.
+</Note>
+
+---
+
+## Oracle
+
+Scopes for oracle price feed submission and data provision.
+
+| Scope | Description |
+|---|---|
+| `oracle:submit-price` | Submit price data to oracle contracts (Chainlink, Pyth, UMA, etc.) |
+| `oracle:submit-data` | Submit non-price data to oracle or attestation contracts |
+| `oracle:read` | Read-only access to oracle price feeds, data submissions, and dispute status |
+
+**Wildcard:** `oracle:*`
+
+---
+
+## Identity
+
+Scopes for onchain identity: ENS, attestations, and social protocols.
+
+| Scope | Description |
+|---|---|
+| `identity:register` | Register or renew onchain names (ENS, Unstoppable Domains, SNS, etc.) |
+| `identity:update` | Update onchain identity records, resolver data, or profile metadata |
+| `identity:attest` | Create onchain attestations (EAS, Verax, etc.) about addresses or entities |
+| `identity:social` | Perform social protocol actions (Lens, Farcaster): post, follow, like, mirror |
+| `identity:read` | Read-only access to onchain identity records, attestations, and social profiles |
+
+**Wildcard:** `identity:*`
+
+---
+
+## Data
+
+Scopes for market data access, analytics, and export.
+
+| Scope | Description |
+|---|---|
+| `data:read` | Read-only access to platform data, market data, or analytics |
+| `data:write` | Write or update data records on the platform |
+| `data:export` | Export data in bulk (CSV, JSON, etc.) |
+
+**Wildcard:** `data:*`
+
+---
+
+## Messaging
+
+Scopes for inter-agent and notification messaging.
+
+| Scope | Description |
+|---|---|
+| `messaging:send` | Send messages or notifications to users or systems |
+| `messaging:read` | Read incoming messages and notification history |
+
+**Wildcard:** `messaging:*`
+
+---
+
+## Compliance
+
+Scopes for compliance reporting and audit access.
+
+| Scope | Description |
+|---|---|
+| `compliance:report` | Generate compliance and regulatory reports |
+| `compliance:audit-read` | Read-only access to audit trail and verification logs |
+
+**Wildcard:** `compliance:*`
+
+---
+
+## Scope validation
+
+Procta validates scopes at agent registration and update time. Only predefined scopes, category wildcards, and the global wildcard are accepted. If you pass an invalid scope, the API returns:
+
+```json
+{
+  "error": "INVALID_SCOPES",
+  "message": "Invalid scopes: foo:bar. Use GET /v1/scopes to see all available scopes.",
+  "invalidScopes": ["foo:bar"]
+}
+```
+
+## Example: scoping a trading bot on Binance
+
+```json
+{
+  "scopes": ["trading:spot", "trading:cancel", "trading:modify", "trading:read", "account:read"],
+  "limits": {
+    "perTransaction": { "USDT": "5000" },
+    "daily": { "USDT": "50000" }
+  }
+}
+```
+
+## Example: scoping a DeFi yield agent
+
+```json
+{
+  "scopes": [
+    "defi:swap", "defi:deposit", "defi:withdraw", "defi:claim",
+    "yield:vault-deposit", "yield:vault-withdraw", "yield:harvest", "yield:compound",
+    "token:approve", "token:read", "defi:read", "yield:read"
+  ],
+  "limits": {
+    "perTransaction": { "USD": "10000" },
+    "daily": { "USD": "100000" }
+  }
+}
+```
+
+## Example: scoping a liquidation keeper
+
+```json
+{
+  "scopes": ["lending:liquidate", "lending:read", "automation:execute", "automation:trigger"],
+  "limits": {
+    "perTransaction": { "USD": "50000" }
+  }
+}
+```
+
+## Best practices
+
+- **Principle of least privilege** — Assign the minimum scopes an agent needs. A trading bot that only trades spot doesn't need `trading:*`.
+- **Separate withdrawal authority** — Never combine trading and withdrawal scopes on the same agent unless absolutely necessary. Use dedicated withdrawal agents with stricter limits.
+- **Use read scopes** — Every category has a `:read` scope. Use it for monitoring and reporting agents that don't need write access.
+- **Avoid the global wildcard** — The `*` scope grants unrestricted access. Use it only for development and testing, never in production.
+- **Combine scopes with limits** — Scopes define *what* an agent can do. Limits define *how much*. Always pair scopes with appropriate per-transaction and daily limits.
+- **Split DeFi concerns** — Use `defi:*` for general DEX interactions, `lending:*` for lending-specific operations, and `yield:*` for vault/farming strategies. This gives you fine-grained control over what a DeFi agent can touch.
+- **Be specific with wallet signing** — Prefer `wallet:sign-transfer` over `wallet:sign-contract` when possible. The more specific the signing scope, the smaller the blast radius if the agent is compromised.

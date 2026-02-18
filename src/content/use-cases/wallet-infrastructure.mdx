@@ -1,0 +1,122 @@
+---
+title: Wallet Infrastructure Providers
+description: How wallet-as-a-service, MPC key management, and smart account platforms use Procta to gate agent signing requests with identity and authorization checks.
+---
+
+Wallet infrastructure providers — wallet-as-a-service platforms, MPC key management services, and smart account providers — are the signing layer of crypto. When an application needs to create a wallet, sign a transaction, or manage keys on behalf of a user, it calls a wallet infrastructure provider.
+
+Increasingly, the entity requesting a signature isn't a human clicking a button. It's an autonomous agent — a trading bot, a yield optimizer, a payment processor — making programmatic signing requests through the provider's API. The wallet provider has to decide: should this agent be allowed to sign this transaction?
+
+Today, that decision is based on API keys alone. The agent presents a valid key, and the provider signs. There's no way to verify *what* the agent is authorized to sign, *how much* it should be allowed to move, or *who* deployed it. API keys grant access, but they don't carry authorization context.
+
+## What goes wrong without verification
+
+Wallet infrastructure sits at the most sensitive point in the stack — it controls the keys. When agents interact with wallet providers without identity or scope verification, the consequences are direct:
+
+- An agent with a valid API key requests a signature for a transaction type it was never intended to execute — a withdrawal instead of a swap, a transfer to an unknown address instead of a known protocol
+- A compromised agent uses its wallet API credentials to sign transactions draining the associated wallet, because the provider has no way to distinguish authorized from unauthorized requests
+- An agent belonging to one customer's account requests signatures for another customer's wallet, and the provider has no ownership verification to catch the cross-account access
+- After a wallet drain, the provider has no structured record of which agent requested which signature and whether the request was within the agent's intended scope
+
+The fundamental issue is that wallet providers are making signing decisions based on authentication (does this agent have a valid key?) rather than authorization (is this agent allowed to sign *this specific transaction*?).
+
+## How Procta fits into the signing flow
+
+Procta adds an authorization layer to the wallet provider's signing pipeline. Before co-signing a transaction, releasing an MPC key share, or executing a smart account operation, the provider verifies the agent's identity and scope through Procta.
+
+The integration works at two levels:
+
+### Real-time verification
+
+For standard signing flows, the wallet provider calls Procta's `/verify` endpoint before processing the signing request. This adds a single API call to the signing pipeline.
+
+<CodeGroup title="Pre-sign verification">
+
+```ts
+async function handleSigningRequest(agent: Agent, txType: string, amount: string) {
+  // Verify the agent is authorized for this transaction type and amount
+  const check = await fetch('https://api.procta.org/v1/verify', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      kya_id: agent.kyaId,
+      action: txType,        // e.g. "wallet:sign-transfer", "wallet:sign-swap"
+      amount,
+      asset: 'USDC',
+    }),
+  })
+  const result = await check.json()
+
+  if (result.decision !== 'ALLOWED') {
+    logger.warn(`Signing request denied: ${result.reason}`, { agent: agent.kyaId })
+    throw new Error('Agent not authorized for this transaction')
+  }
+
+  // Proceed with MPC co-signing or key share release
+  return await coSign(agent.walletId, txPayload)
+}
+```
+
+```python
+import os, requests
+
+def handle_signing_request(agent, tx_type, amount):
+    # Verify the agent is authorized for this transaction type and amount
+    response = requests.post(
+        "https://api.procta.org/v1/verify",
+        headers={"Authorization": f"Bearer {os.environ['PROCTA_RP_KEY']}"},
+        json={
+            "kya_id": agent.kya_id,
+            "action": tx_type,  # e.g. "wallet:sign-transfer", "wallet:sign-swap"
+            "amount": amount,
+            "asset": "USDC",
+        },
+    )
+    result = response.json()
+
+    if result["decision"] != "ALLOWED":
+        logger.warning(f"Signing request denied: {result['reason']}")
+        raise PermissionError("Agent not authorized for this transaction")
+
+    # Proceed with MPC co-signing or key share release
+    return co_sign(agent.wallet_id, tx_payload)
+```
+
+</CodeGroup>
+
+### Offline credential validation
+
+For latency-sensitive signing flows — where even a 15ms API call is too much — the wallet provider can validate the agent's Procta-issued verifiable credential locally. The credential is a W3C-compatible JWT that contains the agent's identity, scopes, and limits. The provider verifies the JWT signature against Procta's public key and checks the scopes without making a network call.
+
+This is useful for high-frequency signing operations where the provider has already verified the agent recently and wants to avoid repeated API calls. See the [Credentials documentation](/credentials) for details on offline validation.
+
+## What the provider gains
+
+**Authorization, not just authentication.** The provider can distinguish between "this agent has a valid API key" and "this agent is authorized to sign a transfer of $50,000 in USDC." This is the difference between access control and authorization — and it's the difference between a secure signing service and a liability.
+
+**Owner-linked agents.** Procta's verification confirms that the agent belongs to the same verified owner as the wallet. This prevents cross-account agent access — an agent registered under Owner A cannot request signatures for Owner B's wallet, even if it somehow obtains valid API credentials.
+
+**Transaction-level limits.** Per-transaction and rolling daily limits are enforced at the Procta layer, before the provider ever touches the keys. A signing request that exceeds the agent's authorized limit is denied before the MPC ceremony begins.
+
+**Revocation without key rotation.** If an agent is compromised, the owner revokes its Procta credentials. All subsequent signing requests from that agent are denied. The wallet provider doesn't need to rotate keys, invalidate API tokens, or update smart account permissions — Procta handles the revocation.
+
+## Scopes for wallet infrastructure
+
+| Scope | Allows |
+|---|---|
+| `wallet:sign-transfer` | Signing asset transfer transactions |
+| `wallet:sign-swap` | Signing token swap transactions |
+| `wallet:sign-approve` | Signing token approval transactions |
+| `wallet:sign-contract` | Signing arbitrary contract interactions |
+| `wallet:read` | Read-only access to wallet balances and history |
+
+See the [Scopes reference](/scopes) for the full list of available scopes and wildcard patterns.
+
+## Next steps
+
+- [Register as a relying party](/guides/relying-party-guide) to integrate Procta into your signing pipeline
+- [Review the Credentials documentation](/credentials) for offline credential validation
+- [Explore the Quickstart](/quickstart) for a 5-minute integration walkthrough

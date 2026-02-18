@@ -88,3 +88,9 @@ Every verification request is automatically recorded as an audit event, regardle
 <Note type="info" title="Performance">
 Verification typically completes in under 15ms. All checks are performed in a single database round-trip.
 </Note>
+
+## Scopes
+
+The `action` field in the verification request is checked against the agent's registered scopes. Procta uses a predefined scope registry with 16 categories and 60+ scopes covering trading, withdrawals, DeFi, wallet signing, payments, and more.
+
+See the [Scopes reference](/scopes) for the complete list of available scopes, wildcard patterns, and best practices.

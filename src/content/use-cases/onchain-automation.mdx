@@ -1,0 +1,117 @@
+---
+title: Onchain Automation Tools
+description: How keeper networks, liquidation bots, yield optimizers, and bridge relayers use Procta for action-level scoping, transaction limits, and immutable audit trails.
+---
+
+Onchain automation is the backbone of DeFi. Keeper networks trigger liquidations when positions go underwater. Yield optimizers rebalance across lending protocols to maximize returns. Bridge relayers shuttle assets between chains. Automated treasury managers execute governance-approved transactions. These agents manage significant TVL and operate continuously, often without human oversight.
+
+The trust problem here is different from trading bots. Onchain automation agents don't act on behalf of individual users — they act on behalf of protocols, DAOs, and treasury multisigs. Their permissions are broad by design, because the strategies they execute require access to multiple contracts and protocols. But broad permissions without verification create an enormous blast radius when something goes wrong.
+
+## What goes wrong without verification
+
+A yield optimizer has authority to deposit into and withdraw from multiple lending protocols. A keeper bot can trigger liquidations across an entire market. A bridge relayer holds funds in transit between chains. When these agents operate without identity or scope enforcement, the failure modes are severe:
+
+- A compromised yield optimizer drains funds from every protocol it has access to, because nothing limits its withdrawal authority
+- A misconfigured keeper bot triggers unnecessary liquidations, causing cascading losses across a market
+- A bridge relayer processes fraudulent transfer requests because there's no verification of the request source
+- After an incident, the protocol has no structured audit trail — just raw transaction logs that take days to parse
+
+The common thread is that onchain automation agents have *more* power than they need for any single action, and there's no mechanism to enforce the principle of least privilege at execution time.
+
+## How Procta fits into the automation pipeline
+
+Procta adds a verification step between the agent's decision to act and the actual onchain execution. The automation tool calls Procta before submitting any transaction, and Procta checks whether that specific action, at that specific amount, is within the agent's authorized scope.
+
+The **protocol or DAO** registers as an owner on Procta and registers each automation agent with specific scopes. A yield optimizer might get `defi:deposit` and `defi:withdraw` with a per-transaction limit of $500,000. A keeper bot might get `defi:liquidate` with no amount limit but restricted to specific contract addresses.
+
+Each agent receives a `kya_` identifier tied to the protocol's verified identity.
+
+Before the agent submits a transaction, the automation tool calls `/verify` with the agent's `kya_id`, the action, and the transaction amount.
+
+Procta returns `ALLOWED` or `DENIED`. The tool only submits the transaction if allowed.
+
+<CodeGroup title="Pre-execution verification for a yield optimizer">
+
+```ts
+async function executeRebalance(agent: Agent, protocol: string, amount: string) {
+  // Verify the deposit action before executing
+  const check = await fetch('https://api.procta.org/v1/verify', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.PROCTA_RP_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      kya_id: agent.kyaId,
+      action: 'defi:deposit',
+      amount,
+      asset: 'USDC',
+    }),
+  })
+  const result = await check.json()
+
+  if (result.decision !== 'ALLOWED') {
+    logger.warn(`Rebalance blocked: ${result.reason}`, { agent: agent.kyaId, protocol })
+    return
+  }
+
+  // Proceed with the onchain transaction
+  await submitDepositTransaction(protocol, amount)
+}
+```
+
+```python
+import os, requests
+
+def execute_rebalance(agent, protocol, amount):
+    # Verify the deposit action before executing
+    response = requests.post(
+        "https://api.procta.org/v1/verify",
+        headers={"Authorization": f"Bearer {os.environ['PROCTA_RP_KEY']}"},
+        json={
+            "kya_id": agent.kya_id,
+            "action": "defi:deposit",
+            "amount": amount,
+            "asset": "USDC",
+        },
+    )
+    result = response.json()
+
+    if result["decision"] != "ALLOWED":
+        logger.warning(f"Rebalance blocked: {result['reason']}", extra={"agent": agent.kya_id})
+        return
+
+    # Proceed with the onchain transaction
+    submit_deposit_transaction(protocol, amount)
+```
+
+</CodeGroup>
+
+## What the protocol gains
+
+**Action-level granularity.** Instead of giving an agent blanket access to a set of contracts, the protocol defines exactly which actions the agent can perform. A yield optimizer with `defi:deposit` scope cannot execute `defi:withdraw` unless explicitly authorized. This enforces least privilege at the action level, not just the contract level.
+
+**Transaction limits as a safety net.** Even within an authorized scope, per-transaction and rolling daily limits prevent a single action from moving more value than intended. If a yield optimizer is authorized to deposit up to $500,000 per transaction, a bug that tries to deposit $5 million will be blocked.
+
+**Structured audit trail.** Every verification decision is logged with the agent identity, action, amount, timestamp, and result. This is fundamentally different from parsing raw transaction logs — the audit trail is structured, queryable, and exportable as CSV. For DAOs, this means governance-ready reporting. For protocols, this means faster incident response.
+
+**Incident containment.** When an agent is compromised or misbehaving, the protocol can revoke its credentials through Procta. All subsequent verification requests for that agent will return `DENIED`, effectively disabling the agent without needing to rotate contract permissions or multisig keys.
+
+## Scopes for onchain automation
+
+| Scope | Allows |
+|---|---|
+| `defi:deposit` | Depositing funds into lending or liquidity protocols |
+| `defi:withdraw` | Withdrawing funds from protocols |
+| `defi:swap` | Token swaps on DEXs |
+| `defi:liquidate` | Triggering liquidations on lending protocols |
+| `bridge:transfer` | Cross-chain asset transfers |
+| `treasury:execute` | Executing governance-approved treasury transactions |
+
+Scopes can be combined. A yield optimizer might have `defi:deposit` + `defi:withdraw` + `defi:swap`, while a keeper bot has only `defi:liquidate`. See the [Scopes reference](/scopes) for the full list of available scopes.
+
+## Next steps
+
+- [Register as a relying party](/guides/relying-party-guide) to start verifying automation agents
+- [Review the Verification documentation](/verification) for the full scope and limits reference
+- [Explore the audit trail](/guides/audit-trails) for compliance and governance reporting

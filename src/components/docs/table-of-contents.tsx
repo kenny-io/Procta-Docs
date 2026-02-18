@@ -51,8 +51,8 @@ export function TableOfContents() {
     <aside className={cn('sticky top-32 text-sm', layout.tocWidth, layout.panel, 'p-5')}>
       <p className={cn('mb-4', typography.meta)}>On this page</p>
       <ul className="space-y-2">
-        {items.map((item) => (
-          <li key={item.id} className={cn(item.level > 2 && 'pl-4')}>
+        {items.map((item, index) => (
+          <li key={`${item.id}-${index}`} className={cn(item.level > 2 && 'pl-4')}>
             <Link
               href={`#${item.id}`}
               className={cn(

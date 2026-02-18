@@ -9,7 +9,7 @@
         },
         {
           "group": "Core Concepts",
-          "pages": ["authentication", "verification", "credentials"]
+          "pages": ["authentication", "verification", "credentials", "scopes"]
         },
         {
           "group": "Integrations",
@@ -22,27 +22,10 @@
       ]
     },
     {
-      "tab": "Guides",
-      "groups": [
-        {
-          "group": "For Agent Owners",
-          "pages": ["guides/owner-guide", "guides/agent-management"]
-        },
-        {
-          "group": "For Relying Parties",
-          "pages": ["guides/relying-party-guide", "guides/verification-integration"]
-        },
-        {
-          "group": "Advanced",
-          "pages": ["guides/key-rotation", "guides/audit-trails"]
-        }
-      ]
-    },
-    {
       "tab": "API Reference",
       "api": {
         "source": "openapi.yaml",
-        "tagsOrder": ["Health", "Auth", "Owners", "Relying Parties", "Agents", "Credentials", "Verification", "Audit", "Webhooks"],
+        "tagsOrder": ["Health", "Auth", "Owners", "Relying Parties", "Agents", "Credentials", "Verification", "Scopes", "Audit", "Webhooks"],
         "defaultGroup": "General",
         "overrides": {
           "GET /health": {
@@ -64,6 +47,53 @@
           }
         }
       }
+    },
+    {
+      "tab": "Guides",
+      "groups": [
+        {
+          "group": "For Agent Owners",
+          "pages": ["guides/owner-guide", "guides/agent-management"]
+        },
+        {
+          "group": "For Relying Parties",
+          "pages": ["guides/relying-party-guide", "guides/verification-integration"]
+        },
+        {
+          "group": "Advanced",
+          "pages": ["guides/key-rotation", "guides/audit-trails"]
+        }
+      ]
+    },
+    {
+      "tab": "Use Cases",
+      "groups": [
+        {
+          "group": "Crypto & Onchain Agents",
+          "pages": [
+            "use-cases/trading-bot-platforms",
+            "use-cases/agent-frameworks",
+            "use-cases/onchain-automation",
+            "use-cases/wallet-infrastructure",
+            "use-cases/custodial-platforms"
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Examples",
+      "groups": [
+        {
+          "group": "End-to-End Integrations",
+          "pages": [
+            "examples/trading-bot-verification",
+            "examples/agent-framework-verification",
+            "examples/onchain-automation-verification",
+            "examples/wallet-infrastructure-verification",
+            "examples/custodial-platform-verification"
+          ]
+        }
+      ]
     },
     {
       "tab": "Changelog",
