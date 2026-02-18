@@ -1,9 +1,9 @@
 ---
 title: Webhooks
-description: KYC verification webhooks and HMAC signature validation.
+description: Inbound KYC webhooks and outbound verification event webhooks with HMAC signature validation.
 ---
 
-Procta receives webhooks from external services to update verification statuses in real-time.
+Procta both receives and sends webhooks. Inbound webhooks from Sumsub update owner KYC status. Outbound webhooks notify relying parties of every verification decision in real-time.
 
 ## Sumsub KYC Webhooks
 
@@ -22,7 +22,7 @@ When an owner completes KYC verification through Sumsub, a webhook is sent to Pr
 | `GREEN` | `VERIFIED` | Identity verified successfully |
 | `RED` | `REJECTED` | Identity verification failed |
 
-## Signature Verification
+## Sumsub Signature Verification
 
 All Sumsub webhooks include an `x-payload-digest` header containing an HMAC-SHA256 hex digest. Procta validates this signature before processing any webhook.
 
@@ -49,7 +49,149 @@ function verifyWebhookSignature(
 Always validate the `x-payload-digest` header before processing webhook payloads. Requests with missing or invalid signatures are rejected with a `401` status.
 </Note>
 
+---
+
 ## Relying Party Webhooks
 
-Relying parties can configure a `webhookUrl` during registration to receive notifications about agent status changes. Events are delivered as POST requests with JSON payloads.
+Procta delivers real-time webhook notifications to relying parties whenever a verification decision is made. Configure a `webhookUrl` during registration to start receiving events.
 
+### Setup
+
+A webhook secret (`whsec_...`) is generated automatically when you register a relying party. It is returned **once** in the registration response — store it securely.
+
+```json
+{
+  "id": "rp_abc123",
+  "name": "Acme Exchange",
+  "apiKey": "prc_rp_...",
+  "webhookSecret": "whsec_a1b2c3d4..."
+}
+```
+
+### Event: `verification.completed`
+
+Fired after every `POST /v1/verify` call, for both `ALLOWED` and `DENIED` decisions.
+
+```json
+{
+  "event": "verification.completed",
+  "verificationId": "01jm8abc123",
+  "timestamp": "2026-02-18T07:00:00.000Z",
+  "data": {
+    "kyaId": "kya_01khm4wne0d583nsxgzgs14ej0",
+    "action": "trading:spot",
+    "decision": "ALLOWED",
+    "allowed": true,
+    "amount": "500.00",
+    "asset": "USDT",
+    "chain": "137",
+    "scopes": ["trading:spot", "trading:cancel", "trading:read"],
+    "ownerRiskBand": "LOW"
+  }
+}
+```
+
+If denied:
+
+```json
+{
+  "event": "verification.completed",
+  "verificationId": "01jm8def456",
+  "timestamp": "2026-02-18T07:01:00.000Z",
+  "data": {
+    "kyaId": "kya_01khm4wne0d583nsxgzgs14ej0",
+    "action": "withdrawal:crypto",
+    "decision": "DENIED",
+    "allowed": false,
+    "reason": "Action 'withdrawal:crypto' not in agent scopes",
+    "amount": "1000.00",
+    "asset": "ETH",
+    "chain": "1",
+    "scopes": ["trading:spot", "trading:read"],
+    "ownerRiskBand": "LOW"
+  }
+}
+```
+
+### Headers
+
+Every webhook request includes these headers:
+
+| Header | Description |
+| --- | --- |
+| `Content-Type` | `application/json` |
+| `X-Procta-Signature` | HMAC-SHA256 signature of the request body |
+| `X-Procta-Event` | Event type (e.g. `verification.completed`) |
+| `X-Procta-Verification-Id` | The verification ID for correlation |
+| `X-Procta-Timestamp` | ISO 8601 timestamp of the event |
+| `User-Agent` | `Procta-Webhook/1.0` |
+
+### Signature verification
+
+The `X-Procta-Signature` header contains an HMAC-SHA256 hex digest prefixed with `sha256=`. Verify it using your webhook secret:
+
+```ts
+import crypto from 'node:crypto'
+
+function verifyProctaWebhook(
+  body: string,
+  signature: string,
+  secret: string
+): boolean {
+  const expected = `sha256=${crypto
+    .createHmac('sha256', secret)
+    .update(body)
+    .digest('hex')}`
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expected)
+  )
+}
+
+// In your webhook handler:
+app.post('/webhooks/procta', (req, res) => {
+  const signature = req.headers['x-procta-signature']
+  const rawBody = JSON.stringify(req.body)
+
+  if (!verifyProctaWebhook(rawBody, signature, process.env.PROCTA_WEBHOOK_SECRET)) {
+    return res.status(401).json({ error: 'Invalid signature' })
+  }
+
+  const { event, data } = req.body
+
+  if (data.decision === 'DENIED') {
+    // Alert, block, or log the denied action
+  }
+
+  res.status(200).json({ received: true })
+})
+```
+
+<Note type="warning" title="Always verify signatures">
+Reject any webhook request with a missing or invalid `X-Procta-Signature` header. This prevents spoofed events from being processed.
+</Note>
+
+### Retry policy
+
+If your endpoint returns a non-2xx response or is unreachable, Procta retries with exponential backoff:
+
+| Attempt | Delay |
+| --- | --- |
+| 1st retry | 1 second |
+| 2nd retry | 2 seconds |
+| 3rd retry | 4 seconds |
+
+- **Timeout**: 30 seconds per request
+- **No retry on 4xx**: Client errors (except `408 Request Timeout` and `429 Too Many Requests`) are not retried
+- **Max attempts**: 3 total (1 initial + 2 retries)
+
+<Note type="info" title="Async delivery">
+Webhooks are delivered asynchronously and do not block the verification response. Your platform receives the verification decision immediately, and the webhook follows shortly after.
+</Note>
+
+### Best practices
+
+- **Return 200 quickly** — Process webhook payloads asynchronously. Return a `200` status immediately and handle the event in a background job.
+- **Handle duplicates** — Use the `verificationId` field to deduplicate events in case of retries.
+- **Use HTTPS** — Always configure an HTTPS webhook URL in production.
+- **Monitor failures** — If your endpoint is consistently failing, Procta logs the errors. Check your server logs for connectivity issues.

@@ -56,6 +56,7 @@ async function verifyAgent(kyaId: string, action: string, amount?: string) {
       action,
       amount,
       asset: 'USD',
+      chain: '1', // Ethereum mainnet
     }),
   })
 
@@ -72,11 +73,13 @@ async function verifyAgent(kyaId: string, action: string, amount?: string) {
 }
 ```
 
-The API checks four things in a single call:
+The API checks six things in a single call:
 1. **Agent status** — Is the agent active (not suspended or revoked)?
 2. **Owner verification** — Is the agent's owner KYC/KYB-verified?
 3. **Scope authorization** — Does the agent have permission for this action?
-4. **Transaction limits** — Is the amount within the agent's configured limits?
+4. **Asset restrictions** — Is the asset on the agent's allowlist / not on the denylist?
+5. **Chain restrictions** — Is the chain on the agent's allowlist / not on the denylist?
+6. **Transaction limits** — Is the amount within the agent's configured limits?
 
 </Step>
 
@@ -124,6 +127,31 @@ curl -X POST https://api.procta.org/v1/relying-parties/{id}/api-keys \
 curl -X DELETE https://api.procta.org/v1/relying-parties/{id}/api-keys/{keyId} \
   -H "Authorization: Bearer prc_rp_..."
 ```
+
+</Step>
+
+<Step title="Configure Webhooks">
+
+Procta sends real-time webhook notifications for every verification decision. Your webhook secret (`whsec_...`) was generated at registration.
+
+1. Set your **Webhook URL** during registration or update it later
+2. Store the **webhook secret** securely — it's used to verify webhook signatures
+3. Implement a webhook handler on your server:
+
+```ts
+app.post('/webhooks/procta', (req, res) => {
+  const signature = req.headers['x-procta-signature']
+  // Verify HMAC-SHA256 signature using your webhook secret
+  // See the Webhooks reference for full verification code
+
+  const { event, data } = req.body
+  console.log(`Verification ${data.decision}: ${data.kyaId} -> ${data.action}`)
+
+  res.status(200).json({ received: true })
+})
+```
+
+Webhooks include the full verification payload (decision, scopes, amounts, chain) and are retried up to 3 times with exponential backoff. See the [Webhooks reference](/webhooks#relying-party-webhooks) for details.
 
 </Step>
 
@@ -183,3 +211,4 @@ This is useful for offline verification or when you want to inspect the credenti
 | View audit logs | Audit Logs section | `GET /v1/audit` |
 | Verify agent action | N/A (API only) | `POST /v1/verify` |
 | Look up agent | N/A (API only) | `POST /v1/agents/lookup` |
+| Webhook events | N/A (automatic) | Delivered to your `webhookUrl` |

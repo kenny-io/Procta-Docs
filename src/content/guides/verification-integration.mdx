@@ -35,20 +35,22 @@ async function proctaVerification(
       action,
       amount: req.body?.amount,
       asset: req.body?.asset,
+      chain: req.body?.chain,
     }),
   })
 
   const result = await response.json()
 
-  if (result.decision === 'DENIED') {
+  if (!result.allowed) {
     return res.status(403).json({
       error: 'AGENT_VERIFICATION_FAILED',
       reason: result.reason,
+      verificationId: result.verificationId,
     })
   }
 
-  // Attach agent info to request for downstream use
-  req.agent = result.agent
+  // Attach verification info to request for downstream use
+  req.verification = result
   next()
 }
 
@@ -89,18 +91,17 @@ Always handle verification failures gracefully:
 try {
   const result = await verifyAgent(kyaId, action, amount)
 
-  switch (result.decision) {
-    case 'ALLOWED':
-      // Process the transaction
-      break
-    case 'DENIED':
-      // Log and return appropriate error
-      logger.warn('Agent verification denied', {
-        kyaId,
-        action,
-        reason: result.reason,
-      })
-      break
+  if (result.allowed) {
+    // Process the transaction
+  } else {
+    // Log and return appropriate error
+    logger.warn('Agent verification denied', {
+      verificationId: result.verificationId,
+      kyaId,
+      action,
+      reason: result.reason,
+    })
+    // A webhook with the full decision is also sent to your webhookUrl
   }
 } catch (error) {
   // Network error or Procta unavailable

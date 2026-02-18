@@ -52,7 +52,7 @@ tags:
   - name: Scopes
     description: Predefined scope registry
   - name: Webhooks
-    description: External service webhook handlers
+    description: Inbound KYC webhooks and outbound verification event webhooks
 
 components:
   securitySchemes:
@@ -178,6 +178,10 @@ components:
           type: string
           format: uri
           nullable: true
+        webhookSecret:
+          type: string
+          nullable: true
+          description: "HMAC-SHA256 webhook signing secret (prefixed with whsec_). Returned once at registration."
         createdAt:
           type: string
           format: date-time
@@ -1661,6 +1665,10 @@ paths:
                   type: string
                   description: Asset type (optional)
                   example: USD
+                chain:
+                  type: string
+                  description: "Chain ID as a string (e.g. 1 for Ethereum, 137 for Polygon)"
+                  example: "137"
                 metadata:
                   type: object
                   additionalProperties: true
@@ -1674,19 +1682,36 @@ paths:
               schema:
                 type: object
                 properties:
-                  decision:
+                  verificationId:
+                    type: string
+                    description: Unique verification event ID
+                  status:
                     type: string
                     enum: [ALLOWED, DENIED]
+                  allowed:
+                    type: boolean
+                    description: Whether the action was allowed
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                    description: Agent's registered scopes
+                  limits:
+                    type: object
+                    nullable: true
+                    description: Limit consumption details
                   reason:
                     type: string
                     nullable: true
                     description: Reason for denial (if denied)
-                  agent:
-                    type: object
-                    description: Agent summary information
-                  latencyMs:
-                    type: number
-                    description: Verification processing time in milliseconds
+                  ownerRiskBand:
+                    type: string
+                    nullable: true
+                    description: Owner's risk band (LOW, MEDIUM, HIGH, PROHIBITED)
+                  timestamp:
+                    type: string
+                    format: date-time
+                    description: ISO 8601 timestamp of the verification
         "401":
           description: Invalid or missing RP API key
           content:

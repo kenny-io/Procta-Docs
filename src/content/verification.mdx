@@ -1,6 +1,6 @@
 ---
 title: Verification
-description: Real-time agent action verification — scopes, limits, and decision logic.
+description: Real-time agent action verification — scopes, limits, asset/chain restrictions, and decision logic.
 ---
 
 The verification endpoint is the core of Procta's trust layer. Relying parties call it before processing any agent request to confirm authorization.
@@ -12,7 +12,11 @@ When a relying party sends a verification request, Procta checks:
 1. **Agent status** — Is the agent `ACTIVE`? (Suspended/revoked agents are denied)
 2. **Owner verification** — Is the agent's owner KYC-verified?
 3. **Scope authorization** — Does the agent have the required scope for the action?
-4. **Transaction limits** — Does the amount fall within the agent's configured limits?
+4. **Asset restrictions** — Is the asset allowed (not on the denylist, or on the allowlist)?
+5. **Chain restrictions** — Is the chain allowed (not on the denylist, or on the allowlist)?
+6. **Transaction limits** — Does the amount fall within the agent's configured limits?
+
+After the decision is made, Procta sends a [webhook notification](/webhooks#relying-party-webhooks) to the relying party's configured endpoint (if any).
 
 ## Making a verification request
 
@@ -28,6 +32,7 @@ const response = await fetch('https://api.procta.org/v1/verify', {
     action: 'payments:send',
     amount: '500.00',
     asset: 'USD',
+    chain: '137',
     metadata: { recipient: 'merchant_123' },
   }),
 })
@@ -37,13 +42,16 @@ const response = await fetch('https://api.procta.org/v1/verify', {
 
 ```json
 {
-  "decision": "ALLOWED",
-  "agent": {
-    "kyaId": "kya_01khm4wne0d583nsxgzgs14ej0",
-    "name": "PaymentBot",
-    "status": "ACTIVE"
+  "verificationId": "01jm8abc123",
+  "status": "ALLOWED",
+  "allowed": true,
+  "scopes": ["payments:send", "payments:receive", "payments:read"],
+  "limits": {
+    "perTransaction": { "configured": "1000", "consumed": "0" },
+    "daily": { "configured": "10000", "consumed": "500" }
   },
-  "latencyMs": 12
+  "ownerRiskBand": "LOW",
+  "timestamp": "2026-02-18T07:00:00.000Z"
 }
 ```
 
@@ -51,10 +59,13 @@ If denied:
 
 ```json
 {
-  "decision": "DENIED",
+  "verificationId": "01jm8def456",
+  "status": "DENIED",
+  "allowed": false,
+  "scopes": ["payments:send", "payments:read"],
   "reason": "Transaction amount 5000.00 exceeds per-transaction limit of 1000",
-  "agent": { "kyaId": "kya_01khm4wne0d583nsxgzgs14ej0", "status": "ACTIVE" },
-  "latencyMs": 8
+  "ownerRiskBand": "LOW",
+  "timestamp": "2026-02-18T07:01:00.000Z"
 }
 ```
 
@@ -64,6 +75,31 @@ If denied:
 | --- | --- |
 | `ALLOWED` | Agent is authorized to perform the action |
 | `DENIED` | Agent is not authorized — see `reason` field |
+
+## Chain parameter
+
+The optional `chain` field accepts a chain ID as a string (e.g. `"1"` for Ethereum, `"137"` for Polygon). When provided, Procta checks the chain against the agent's allowed/denied chain lists.
+
+```ts
+body: JSON.stringify({
+  kya_id: 'kya_...',
+  action: 'defi:swap',
+  amount: '1000',
+  asset: 'USDT',
+  chain: '42161', // Arbitrum
+})
+```
+
+## Asset and chain restrictions
+
+Agent owners can configure allowlists and denylists for both assets and chains. These are checked during verification:
+
+- **`allowedAssets`** — If set, only these assets are permitted. All others are denied.
+- **`deniedAssets`** — If set, these assets are explicitly blocked.
+- **`allowedChains`** — If set, only these chain IDs are permitted.
+- **`deniedChains`** — If set, these chain IDs are explicitly blocked.
+
+By default, all assets and chains are allowed (no restrictions). Denylists take precedence — if an asset appears on both lists, it is denied.
 
 ## Agent Lookup
 
@@ -91,6 +127,12 @@ Verification typically completes in under 15ms. All checks are performed in a si
 
 ## Scopes
 
-The `action` field in the verification request is checked against the agent's registered scopes. Procta uses a predefined scope registry with 16 categories and 60+ scopes covering trading, withdrawals, DeFi, wallet signing, payments, and more.
+The `action` field in the verification request is checked against the agent's registered scopes. Procta uses a predefined scope registry with 24 categories and 131 scopes covering trading, withdrawals, DeFi, wallet signing, payments, and more.
 
 See the [Scopes reference](/scopes) for the complete list of available scopes, wildcard patterns, and best practices.
+
+## Webhooks
+
+After every verification decision, Procta sends a webhook to the relying party's configured endpoint with the full decision payload. Webhooks are delivered asynchronously and do not affect verification latency.
+
+See the [Webhooks reference](/webhooks#relying-party-webhooks) for payload format, signature verification, and retry policy.
